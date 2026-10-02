@@ -1,0 +1,15 @@
+{
+  "name": "Humanual",
+  "short_name": "Humanual",
+  "description": "The unwritten manual for dealing with people. Scripts, decoding, and practice for neurodivergent adults.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f6f1e7",
+  "theme_color": "#5f7a5c",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

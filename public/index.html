@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Humanual</title>
+  <meta name="description" content="The unwritten manual for dealing with people. A social coach for neurodivergent adults.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <meta name="theme-color" content="#5f7a5c">
+  <meta name="apple-mobile-web-app-title" content="Humanual">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <!-- Onboarding (first visit) -->
+  <main id="onboarding" class="onboarding" hidden>
+    <form id="onboard-form" class="onboard-card">
+      <p class="brand">humanual</p>
+      <h1>The unwritten manual for dealing with people.</h1>
+      <p class="lede">Exact words for calls, errands, coworkers, and messages. Practice conversations before they happen. No pressure to act "normal". You decide how much to adapt.</p>
+
+      <div class="notice">
+        <strong>Your coach is an AI</strong>, not a person, a therapist, or a crisis service. Your conversations and profile are saved only in this browser.
+      </div>
+
+      <label class="field">
+        <span>What should your coach call you?</span>
+        <input id="ob-name" name="name" autocomplete="given-name" maxlength="100" required>
+      </label>
+
+      <fieldset class="field">
+        <legend>Pick a coach</legend>
+        <div class="coach-pick" id="ob-coach"></div>
+      </fieldset>
+
+      <fieldset class="field">
+        <legend>How should they talk to you?</legend>
+        <div class="segmented" id="ob-style">
+          <label><input type="radio" name="style" value="direct" checked><span><strong>Direct</strong> Answer first, no cushioning</span></label>
+          <label><input type="radio" name="style" value="gentle"><span><strong>Gentle</strong> A beat of reassurance first</span></label>
+        </div>
+      </fieldset>
+
+      <label class="check">
+        <input type="checkbox" id="ob-age" required>
+        <span>I'm 18 or older.</span>
+      </label>
+
+      <button class="btn primary big" type="submit">Start</button>
+      <p class="fineprint">You can add more about yourself (work, people you deal with) in Settings any time. It helps the coach give specific advice.</p>
+    </form>
+  </main>
+
+  <!-- App -->
+  <div id="app" class="app" hidden>
+    <aside id="sidebar" class="sidebar" aria-label="Conversations">
+      <div class="sidebar-top">
+        <p class="brand">humanual</p>
+        <button class="icon-btn only-mobile" id="close-sidebar" aria-label="Close menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <nav class="views" aria-label="Tools">
+        <button class="view-btn" data-view="chat" aria-current="page">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg>
+          Coach chat
+        </button>
+        <button class="view-btn" data-view="scripts">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v4h4M10 12h6M10 16h6"/></svg>
+          Scripts
+        </button>
+      </nav>
+      <button class="btn primary wide" id="new-chat">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        New conversation
+      </button>
+      <nav id="convo-list" class="convo-list"></nav>
+      <div class="sidebar-bottom">
+        <button class="btn ghost wide" id="open-settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>
+          Profile &amp; settings
+        </button>
+        <a class="help-link" href="tel:988">In crisis? Call or text <strong>988</strong> (US)</a>
+      </div>
+    </aside>
+    <div class="scrim" id="scrim" hidden></div>
+
+    <section class="main" id="chat-view">
+      <header class="topbar">
+        <button class="icon-btn only-mobile" id="open-sidebar" aria-label="Open menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+        <div class="topbar-coach" id="topbar-coach"></div>
+        <span class="mode-tag" id="mode-tag" hidden></span>
+      </header>
+
+      <div id="crisis-banner" class="crisis-banner" role="alert" hidden>
+        <strong>If you're in danger or thinking about suicide, please reach out now.</strong>
+        In the US, <a href="tel:988">call</a> or <a href="sms:988">text 988</a> (Suicide &amp; Crisis Lifeline), or call <a href="tel:911">911</a> for an emergency. Outside the US, call your local emergency number.
+      </div>
+
+      <div id="scroller" class="scroller">
+        <!-- Start screen -->
+        <div id="start" class="start" hidden>
+          <div class="start-head">
+            <div class="avatar xl" id="start-avatar"></div>
+            <h2 id="start-title">What are we working on?</h2>
+            <p class="muted" id="start-sub"></p>
+          </div>
+          <div class="mode-grid" id="mode-grid"></div>
+          <div class="practice-setup" id="practice-setup" hidden></div>
+          <div class="start-settings">
+            <span class="muted">Coach</span>
+            <div class="segmented small" id="start-coach"></div>
+            <span class="muted">Style</span>
+            <div class="segmented small" id="start-style"></div>
+          </div>
+        </div>
+        <!-- Messages -->
+        <ol id="messages" class="messages" aria-live="polite"></ol>
+      </div>
+
+      <div class="composer-wrap">
+        <div id="practice-chips" class="chips" hidden>
+          <button class="chip" data-send="hint">Hint</button>
+          <button class="chip" data-send="pause">Pause</button>
+          <button class="chip" data-send="stop">Stop &amp; get feedback</button>
+        </div>
+        <form id="composer" class="composer">
+          <label for="input" class="sr-only">Message</label>
+          <textarea id="input" rows="1" placeholder="Describe the situation, or paste a message…" maxlength="20000"></textarea>
+          <button class="send-btn" id="send" type="submit" aria-label="Send">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+          </button>
+        </form>
+        <p class="fineprint center">AI coach. Not therapy, legal, or medical advice. Drafts only: nothing gets sent for you.</p>
+      </div>
+    </section>
+
+    <section class="main" id="scripts-view" hidden>
+      <header class="topbar">
+        <button class="icon-btn only-mobile" data-open-sidebar aria-label="Open menu">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+        </button>
+        <div class="topbar-coach" id="scripts-coach"></div>
+      </header>
+      <div class="scroller">
+        <div class="tool">
+          <div class="tool-intro">
+            <h2>Get a script</h2>
+            <p class="muted">Say where it's happening and what you need to do. You get exact words, what they'll probably say back, and a way out if it goes off-script.</p>
+          </div>
+
+          <form id="script-form" class="tool-form">
+            <fieldset class="field">
+              <legend>Where</legend>
+              <div class="channel-pick" id="channel-pick"></div>
+            </fieldset>
+            <label class="field">
+              <span>What do you need to do?</span>
+              <textarea id="script-task" name="task" rows="3" maxlength="2000" required placeholder="e.g. Reschedule my dentist cleaning to next week"></textarea>
+            </label>
+            <div class="chips" id="script-examples" aria-label="Examples"></div>
+            <details class="more">
+              <summary>Add details <span class="muted">(optional)</span></summary>
+              <label class="field">
+                <span class="sr-only">Details</span>
+                <textarea id="script-details" name="details" rows="3" maxlength="4000" placeholder="Anything that helps: who it is, what's already happened, what you're worried about."></textarea>
+              </label>
+            </details>
+            <div class="tool-actions">
+              <button class="btn primary" id="script-go" type="submit">Write my script</button>
+              <p class="status" id="script-status" aria-live="polite"></p>
+            </div>
+          </form>
+
+          <div id="script-crisis" class="crisis-banner" role="alert" hidden>
+            <strong>That sounds like more than a script can help with.</strong>
+            If you're in danger or thinking about suicide, in the US <a href="tel:988">call</a> or <a href="sms:988">text 988</a>, or call <a href="tel:911">911</a>. Outside the US, call your local emergency number.
+            <div style="margin-top:10px"><button class="btn" type="button" id="script-crisis-chat">Talk to your coach</button></div>
+          </div>
+
+          <div id="script-out"></div>
+
+          <div class="saved" id="saved-wrap">
+            <h3>Saved scripts</h3>
+            <p class="muted small">Saved in this browser. Open one any time, even mid-call.</p>
+            <div id="saved-list" class="saved-list"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Settings -->
+  <dialog id="settings" class="sheet" aria-labelledby="settings-title">
+    <form id="settings-form" method="dialog">
+      <div class="sheet-head">
+        <h2 id="settings-title">Profile &amp; settings</h2>
+        <button class="icon-btn" value="cancel" formnovalidate aria-label="Close">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <p class="muted">Your coach reads this before every conversation. Only add what you're comfortable with. It's stored in this browser and sent to the coach with each message.</p>
+
+      <label class="field"><span>Name</span><input name="name" maxlength="100" required></label>
+      <label class="field">
+        <span>About you</span>
+        <small>What's hard for you socially, what helps, how you like to communicate.</small>
+        <textarea name="about" rows="4" maxlength="4000" placeholder="e.g. I'm autistic and rarely leave the house. Phone calls are the hardest. I'd rather text when I can."></textarea>
+      </label>
+      <label class="field">
+        <span>Work and/or business</span>
+        <small>Your job, workplace situation, or a business you run, so networking and work advice fit.</small>
+        <textarea name="work" rows="4" maxlength="4000" placeholder="e.g. QA engineer at a mid-size company with some tense coworker dynamics. I also run a small consulting business on the side."></textarea>
+      </label>
+      <label class="field">
+        <span>People I deal with</span>
+        <small>Short notes on coworkers, a boss, or family who come up a lot. The coach can draft these for you.</small>
+        <textarea name="people" rows="4" maxlength="4000" placeholder="e.g. Dana (team lead): takes credit in meetings, gets defensive if challenged in public, fine 1:1."></textarea>
+      </label>
+
+      <fieldset class="field">
+        <legend>Default coach</legend>
+        <div class="coach-pick compact" id="set-coach"></div>
+      </fieldset>
+      <fieldset class="field">
+        <legend>Default style</legend>
+        <div class="segmented">
+          <label><input type="radio" name="style" value="direct"><span><strong>Direct</strong></span></label>
+          <label><input type="radio" name="style" value="gentle"><span><strong>Gentle</strong></span></label>
+        </div>
+      </fieldset>
+
+      <label class="field" id="access-field">
+        <span>Access code</span>
+        <small>Required while Humanual is in private testing.</small>
+        <input name="accessCode" autocomplete="off">
+      </label>
+
+      <div class="sheet-actions">
+        <button class="btn danger ghost" type="button" id="wipe">Delete all my data</button>
+        <button class="btn primary" value="save">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <template id="coach-card">
+    <label class="coach-card">
+      <input type="radio" name="coach">
+      <span class="coach-body">
+        <span class="avatar"></span>
+        <span class="coach-text">
+          <strong class="coach-name"></strong>
+          <span class="coach-line"></span>
+          <span class="coach-best"></span>
+        </span>
+      </span>
+    </label>
+  </template>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
