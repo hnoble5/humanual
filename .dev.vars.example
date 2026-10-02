@@ -2,3 +2,8 @@
 ANTHROPIC_API_KEY=sk-ant-...
 # Optional locally, strongly recommended in production: users must enter this code in Settings.
 ACCESS_CODE=
+# Sign-in (Clerk). Leave blank to run without accounts.
+CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+# Local testing only: a pretend sign-in on localhost when Clerk isn't set up.
+DEV_AUTH=true

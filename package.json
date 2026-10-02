@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
+    "@clerk/backend": "^3.22.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

@@ -4,6 +4,8 @@ import type { BetaMessageParam } from "@anthropic-ai/sdk/resources/beta/messages
 import { CRISIS_SYSTEM_NOTE, crisisCheck } from "./crisis";
 import { buildSystem, COACHES, MODES, type CoachId, type ModeId, type Profile, type Style } from "./prompt";
 import { CHANNELS, ScriptSchema, scriptRequest, type ChannelId } from "./script";
+import { authMode, getUserId } from "./auth";
+import { deleteAll, sync, SyncError } from "./storage";
 
 const MODEL = "claude-opus-5-5";
 const MAX_MESSAGES = 120;
@@ -85,17 +87,51 @@ function friendlyError(err: unknown): string {
   return "Something went wrong. Try again.";
 }
 
-function guard(request: Request, env: Env): Response | null {
+const ACCESS_ERROR = { error: "Enter the access code in Settings to use the coach.", code: "access" };
+const SIGNIN_ERROR = { error: "Please sign in again.", code: "signin" };
+
+/**
+ * Checks the access code and, once sign-in is set up, that the request is
+ * signed in. Returns the user id (null while sign-in isn't configured), or the
+ * error response to send.
+ */
+async function guard(request: Request, env: Env): Promise<{ userId: string | null } | Response> {
   if (env.ACCESS_CODE && request.headers.get("x-access-code") !== env.ACCESS_CODE) {
-    return json({ error: "Enter the access code in Settings to use the coach.", code: "access" }, 401);
+    return json(ACCESS_ERROR, 401);
   }
+  if (authMode(request, env) === "none") return { userId: null };
+  const userId = await getUserId(request, env);
+  return userId ? { userId } : json(SIGNIN_ERROR, 401);
+}
+
+async function guardModel(request: Request, env: Env) {
   if (!env.ANTHROPIC_API_KEY) return json({ error: "The server's API key isn't set up yet." }, 500);
-  return null;
+  return guard(request, env);
+}
+
+async function handleSync(request: Request, env: Env): Promise<Response> {
+  if (authMode(request, env) === "none") return json({ error: "Sync isn't set up on this server." }, 501);
+  const auth = await guard(request, env);
+  if (auth instanceof Response) return auth;
+  const userId = auth.userId!;
+
+  if (request.method === "DELETE") {
+    await deleteAll(env.DB, userId);
+    return json({ ok: true });
+  }
+  try {
+    return json(await sync(env.DB, userId, await request.json()));
+  } catch (err) {
+    if (err instanceof SyncError) return json({ error: err.message }, 400);
+    if (err instanceof SyntaxError) return json({ error: "Invalid request" }, 400);
+    console.error("sync failed", err);
+    return json({ error: "Couldn't sync right now. Your changes are kept on this device." }, 500);
+  }
 }
 
 async function handleChat(request: Request, env: Env): Promise<Response> {
-  const blocked = guard(request, env);
-  if (blocked) return blocked;
+  const auth = await guardModel(request, env);
+  if (auth instanceof Response) return auth;
 
   let req: ChatRequest;
   try {
@@ -168,8 +204,8 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleScript(request: Request, env: Env): Promise<Response> {
-  const blocked = guard(request, env);
-  if (blocked) return blocked;
+  const auth = await guardModel(request, env);
+  if (auth instanceof Response) return auth;
 
   let req;
   try {
@@ -184,8 +220,7 @@ async function handleScript(request: Request, env: Env): Promise<Response> {
   }
 
   // A script card is the wrong tool for a crisis: send them to help and to the coach chat.
-  if (crisisCheck(`${req.task}
-${req.details}`)) return json({ crisis: true });
+  if (crisisCheck(`${req.task}\n${req.details}`)) return json({ crisis: true });
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   try {
@@ -220,8 +255,17 @@ export default {
       if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
       return handleScript(request, env);
     }
+    if (url.pathname === "/api/sync") {
+      if (request.method !== "POST" && request.method !== "DELETE") return json({ error: "Method not allowed" }, 405);
+      return handleSync(request, env);
+    }
     if (url.pathname === "/api/config") {
-      return json({ accessCodeRequired: Boolean(env.ACCESS_CODE) });
+      const auth = authMode(request, env);
+      return json({
+        accessCodeRequired: Boolean(env.ACCESS_CODE),
+        auth,
+        clerkPublishableKey: auth === "clerk" ? env.CLERK_PUBLISHABLE_KEY : undefined,
+      });
     }
     if (url.pathname.startsWith("/api/")) return json({ error: "Not found" }, 404);
     return env.ASSETS.fetch(request);
