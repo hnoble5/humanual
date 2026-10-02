@@ -16,6 +16,25 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+  <!-- Sign in -->
+  <main id="signin" class="onboarding" hidden>
+    <div class="onboard-card">
+      <p class="brand">humanual</p>
+      <h1>The unwritten manual for dealing with people.</h1>
+      <p class="lede">Sign in so your scripts and conversations are saved and follow you between your phone and your laptop.</p>
+      <p class="notice" id="signin-error" hidden>Couldn't load sign-in. Check your connection and reload the page.</p>
+      <div id="clerk-mount"></div>
+      <form id="dev-signin" class="dev-signin" hidden>
+        <div class="notice"><strong>Local test sign-in.</strong> This only appears on your own computer before Clerk is set up. Any name works; each name is a separate test account.</div>
+        <label class="field">
+          <span>Test user name</span>
+          <input id="dev-user" autocomplete="off" maxlength="64" required>
+        </label>
+        <button class="btn primary big" type="submit">Sign in</button>
+      </form>
+    </div>
+  </main>
+
   <!-- Onboarding (first visit) -->
   <main id="onboarding" class="onboarding" hidden>
     <form id="onboard-form" class="onboard-card">
@@ -24,7 +43,7 @@
       <p class="lede">Exact words for calls, errands, coworkers, and messages. Practice conversations before they happen. No pressure to act "normal". You decide how much to adapt.</p>
 
       <div class="notice">
-        <strong>Your coach is an AI</strong>, not a person, a therapist, or a crisis service. Your conversations and profile are saved only in this browser.
+        <strong>Your coach is an AI</strong>, not a person, a therapist, or a crisis service. <span id="ob-storage">Your conversations and profile are saved only in this browser.</span>
       </div>
 
       <label class="field">
@@ -80,6 +99,14 @@
       </button>
       <nav id="convo-list" class="convo-list"></nav>
       <div class="sidebar-bottom">
+        <div class="account" id="account" hidden>
+          <span class="account-email" id="account-email"></span>
+          <span class="sync-status" id="sync-status" aria-live="polite"></span>
+          <div class="account-actions">
+            <button class="linkback" type="button" id="manage-account">Account</button>
+            <button class="linkback" type="button" id="sign-out">Sign out</button>
+          </div>
+        </div>
         <button class="btn ghost wide" id="open-settings">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>
           Profile &amp; settings
@@ -188,7 +215,7 @@
 
           <div class="saved" id="saved-wrap">
             <h3>Saved scripts</h3>
-            <p class="muted small">Saved in this browser. Open one any time, even mid-call.</p>
+            <p class="muted small">Open one any time, even mid-call or offline.</p>
             <div id="saved-list" class="saved-list"></div>
           </div>
         </div>
@@ -205,7 +232,7 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
       </div>
-      <p class="muted">Your coach reads this before every conversation. Only add what you're comfortable with. It's stored in this browser and sent to the coach with each message.</p>
+      <p class="muted">Your coach reads this before every conversation. Only add what you're comfortable with. It's saved with your conversations and sent to the coach with each message.</p>
 
       <label class="field"><span>Name</span><input name="name" maxlength="100" required></label>
       <label class="field">

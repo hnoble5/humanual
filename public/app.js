@@ -67,8 +67,12 @@ const MODES = {
 
 // ---------- storage ----------
 
-const KEY_SETTINGS = "humanual.settings.v1";
-const KEY_CONVOS = "humanual.convos.v1";
+// Each signed-in person gets their own keys, so two people sharing a browser
+// never see each other's data. Without accounts (uid null) the original keys
+// are used, which is also where data saved before accounts existed lives.
+let uid = null;
+const LEGACY = { settings: "humanual.settings.v1", convos: "humanual.convos.v1", scripts: "humanual.scripts.v1" };
+const keyFor = (name) => (uid ? `humanual.u.${uid}.${name}.v1` : LEGACY[name] ?? `humanual.${name}.v1`);
 
 function load(key, fallback) {
   try {
@@ -86,14 +90,306 @@ function save(key, value) {
   }
 }
 
-let settings = load(KEY_SETTINGS, null);
-let convos = load(KEY_CONVOS, []);
+let settings = null;
+let convos = [];
+let scripts = [];
 let current = null; // the open conversation (may be an unsaved draft)
 let busy = null;    // AbortController while a reply is streaming
 let accessCodeRequired = false;
 
-const saveSettings = () => save(KEY_SETTINGS, settings);
-const saveConvos = () => save(KEY_CONVOS, convos);
+const saveSettings = () => save(keyFor("settings"), settings);
+const saveConvos = () => save(keyFor("convos"), convos);
+const saveScripts = () => save(keyFor("scripts"), scripts);
+
+function loadUserData() {
+  settings = load(keyFor("settings"), null);
+  convos = load(keyFor("convos"), []);
+  scripts = load(keyFor("scripts"), []);
+}
+
+// ---------- account & sync ----------
+//
+// The browser keeps a full copy of the user's data so the app opens instantly
+// and works offline. Every change is also queued in an "outbox" and sent to
+// /api/sync, which returns what other devices changed since our last sync.
+// Per item, the newest edit wins.
+
+let authMode = "none";   // "clerk" | "dev" | "none" (no accounts: browser only)
+let clerk = null;        // Clerk instance when authMode is "clerk"
+let outbox = {};         // "kind:id" -> { updated_at, deleted }
+let syncCursor = 0;
+let syncing = null;      // the in-flight sync, if any
+let syncAgain = false;
+let syncTimer = 0;
+const syncEnabled = () => Boolean(uid) && authMode !== "none";
+
+function setSyncStatus(text) {
+  const node = $("#sync-status");
+  if (node) node.textContent = text;
+}
+
+async function authHeaders() {
+  const h = { "content-type": "application/json", "x-access-code": settings?.accessCode || "" };
+  if (authMode === "clerk" && clerk?.session) h.authorization = `Bearer ${await clerk.session.getToken()}`;
+  if (authMode === "dev") h["x-dev-user"] = load("humanual.devUser", "");
+  return h;
+}
+
+function itemTime(kind, item) {
+  return kind === "script" ? item.updated ?? item.created ?? 0 : item.updated ?? 0;
+}
+
+// The profile syncs without the access code, which is a per-device beta gate.
+function profileData() {
+  const { accessCode, ...rest } = settings ?? {};
+  return rest;
+}
+
+function markDirty(kind, id, { deleted = false, at = Date.now() } = {}) {
+  if (!syncEnabled()) return;
+  outbox[`${kind}:${id}`] = { updated_at: at, deleted };
+  save(keyFor("outbox"), outbox);
+  setSyncStatus("Saving…");
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncNow, 1500);
+}
+
+function pendingChanges() {
+  const changes = [];
+  for (const [key, entry] of Object.entries(outbox)) {
+    const [kind, id] = key.split(":");
+    if (entry.deleted) {
+      changes.push({ kind, id, data: null, deleted: true, updated_at: entry.updated_at });
+      continue;
+    }
+    const data = kind === "profile" ? (settings ? profileData() : null)
+      : kind === "convo" ? convos.find((c) => c.id === id)
+      : scripts.find((x) => x.id === id);
+    if (data) changes.push({ kind, id, data, deleted: false, updated_at: entry.updated_at });
+    else delete outbox[key]; // nothing left to send
+  }
+  return changes.slice(0, 200);
+}
+
+async function syncNow() {
+  if (!syncEnabled()) return;
+  if (syncing) { syncAgain = true; return syncing; }
+  syncing = (async () => {
+    setSyncStatus("Syncing…");
+    try {
+      let more = true;
+      while (more) {
+        const changes = pendingChanges();
+        const res = await fetch("/api/sync", {
+          method: "POST",
+          headers: await authHeaders(),
+          body: JSON.stringify({ since: syncCursor, changes }),
+        });
+        if (res.status === 401) {
+          const data = await res.json().catch(() => ({}));
+          setSyncStatus(data.code === "access" ? "Not synced: enter the access code" : "Not synced: sign in again");
+          return;
+        }
+        if (!res.ok) throw new Error(`sync ${res.status}`);
+        const data = await res.json();
+        // Clear what we sent, unless it was edited again while in flight.
+        for (const c of changes) {
+          const key = `${c.kind}:${c.id}`;
+          if (outbox[key]?.updated_at === c.updated_at) delete outbox[key];
+        }
+        save(keyFor("outbox"), outbox);
+        applyRemote(data.items);
+        syncCursor = data.cursor;
+        save(keyFor("cursor"), syncCursor);
+        more = data.more || Object.keys(outbox).length > 0 && changes.length === 200;
+      }
+      setSyncStatus(Object.keys(outbox).length ? "Saving…" : "Synced");
+    } catch {
+      setSyncStatus(navigator.onLine ? "Not synced yet. Saved on this device." : "Offline. Saved on this device.");
+    } finally {
+      syncing = null;
+      if (syncAgain) { syncAgain = false; syncNow(); }
+    }
+  })();
+  return syncing;
+}
+
+// Merges items from other devices into the local copy.
+function applyRemote(items) {
+  if (!items?.length) return;
+  let changedConvos = false, changedScripts = false, changedProfile = false;
+  for (const item of items) {
+    const key = `${item.kind}:${item.id}`;
+    // A local edit not yet sent that's newer than this one wins.
+    if (outbox[key] && outbox[key].updated_at > item.updated_at) continue;
+
+    if (item.kind === "profile") {
+      if (item.deleted || !item.data) continue;
+      if (!settings || (settings.updated ?? 0) < item.updated_at) {
+        settings = { ...item.data, accessCode: settings?.accessCode || "" };
+        changedProfile = true;
+      }
+    } else if (item.kind === "convo") {
+      // Never swap out a conversation while a reply is streaming into it.
+      if (busy && current?.id === item.id) continue;
+      const i = convos.findIndex((c) => c.id === item.id);
+      const local = convos[i];
+      if (local && itemTime("convo", local) > item.updated_at) continue;
+      if (item.deleted) {
+        if (i >= 0) { convos.splice(i, 1); changedConvos = true; }
+      } else {
+        if (i >= 0) convos[i] = item.data; else convos.push(item.data);
+        if (current?.id === item.id) current = item.data;
+        changedConvos = true;
+      }
+    } else if (item.kind === "script") {
+      const i = scripts.findIndex((x) => x.id === item.id);
+      const local = scripts[i];
+      if (local && itemTime("script", local) > item.updated_at) continue;
+      if (item.deleted) {
+        if (i >= 0) { scripts.splice(i, 1); changedScripts = true; }
+      } else {
+        if (i >= 0) scripts[i] = item.data; else scripts.push(item.data);
+        changedScripts = true;
+      }
+    }
+  }
+
+  if (changedProfile) saveSettings();
+  if (changedConvos) {
+    convos.sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0));
+    saveConvos();
+  }
+  if (changedScripts) {
+    scripts.sort((a, b) => (b.created ?? 0) - (a.created ?? 0));
+    saveScripts();
+  }
+  if ($("#app").hidden) return;
+  if (changedConvos || changedProfile) {
+    // The open conversation was deleted on another device: move on.
+    if (current && current.messages.length && !convos.some((c) => c.id === current.id)) {
+      if (convos[0]) openConvo(convos[0].id); else newConvo();
+    } else if (!busy) {
+      render();
+    } else {
+      renderConvoList();
+    }
+  }
+  if (changedScripts && view === "scripts") {
+    renderSavedList();
+    const shown = scripts.find((x) => x.id === shownScriptId);
+    if (shownScriptId && shownScriptId !== "example") showScript(shown ?? scripts[0] ?? EXAMPLE_SCRIPT);
+  }
+}
+
+// Data saved in this browser before accounts existed moves into the account.
+function adoptLegacyData() {
+  const legacySettings = load(LEGACY.settings, null);
+  const legacyConvos = load(LEGACY.convos, []);
+  const legacyScripts = load(LEGACY.scripts, []);
+  if (!legacySettings && !legacyConvos.length && !legacyScripts.length) return;
+
+  if (legacySettings && !settings) settings = { ...legacySettings, updated: legacySettings.updated ?? 1 };
+  for (const c of legacyConvos) if (!convos.some((x) => x.id === c.id)) convos.push(c);
+  for (const x of legacyScripts) if (!scripts.some((y) => y.id === x.id)) scripts.push(x);
+  convos.sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0));
+  scripts.sort((a, b) => (b.created ?? 0) - (a.created ?? 0));
+  saveSettings(); saveConvos(); saveScripts();
+
+  if (settings) markDirty("profile", "me", { at: settings.updated ?? Date.now() });
+  for (const c of legacyConvos) markDirty("convo", c.id, { at: itemTime("convo", c) || Date.now() });
+  for (const x of legacyScripts) markDirty("script", x.id, { at: itemTime("script", x) || Date.now() });
+  try {
+    for (const k of Object.values(LEGACY)) localStorage.removeItem(k);
+  } catch {}
+}
+
+async function enterAs(userId, { prefillName = "" } = {}) {
+  uid = userId;
+  if (uid) save("humanual.lastUser", uid);
+  loadUserData();
+  outbox = load(keyFor("outbox"), {});
+  syncCursor = load(keyFor("cursor"), 0);
+  $("#signin").hidden = true;
+
+  if (syncEnabled()) {
+    adoptLegacyData();
+    // A new device has nothing local yet: wait briefly for the account's data
+    // so we don't show the welcome screen to someone who already set up.
+    await Promise.race([syncNow(), new Promise((r) => setTimeout(r, 8000))]);
+    window.addEventListener("online", () => syncNow());
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) syncNow(); });
+    setInterval(() => { if (!document.hidden) syncNow(); }, 60_000);
+  }
+  renderAccount();
+
+  if (settings?.name) {
+    startApp();
+    if (location.hash === "#scripts") showView("scripts");
+  } else {
+    showOnboarding(prefillName);
+  }
+}
+
+function renderAccount() {
+  const box = $("#account");
+  box.hidden = !syncEnabled();
+  if (!syncEnabled()) return;
+  const who = authMode === "clerk"
+    ? clerk?.user?.primaryEmailAddress?.emailAddress ?? "Signed in"
+    : `Test user: ${load("humanual.devUser", "")}`;
+  $("#account-email").textContent = who;
+  $("#manage-account").hidden = authMode !== "clerk";
+}
+
+async function signOut() {
+  if (Object.keys(outbox).length) {
+    await syncNow();
+    if (Object.keys(outbox).length &&
+        !confirm("Some changes haven't synced yet and will be lost from this device if you sign out now. Sign out anyway?")) return;
+  }
+  // Clear this person's copy from the device (shared computers).
+  try {
+    for (const name of ["settings", "convos", "scripts", "outbox", "cursor"]) localStorage.removeItem(keyFor(name));
+    localStorage.removeItem("humanual.lastUser");
+    if (authMode === "dev") localStorage.removeItem("humanual.devUser");
+  } catch {}
+  if (authMode === "clerk") await clerk.signOut();
+  location.reload();
+}
+
+function loadClerk(publishableKey) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/@clerk/clerk-js@6/dist/clerk.browser.js";
+    script.async = true;
+    script.crossOrigin = "anonymous";
+    script.dataset.clerkPublishableKey = publishableKey;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("Couldn't load sign-in"));
+    document.head.append(script);
+  }).then(async () => {
+    let c = window.Clerk;
+    if (typeof c === "function") c = new c(publishableKey);
+    await c.load();
+    return c;
+  });
+}
+
+function showSignIn() {
+  $("#onboarding").hidden = true;
+  $("#app").hidden = true;
+  $("#signin").hidden = false;
+  if (authMode === "clerk") {
+    $("#dev-signin").hidden = true;
+    clerk.mountSignIn($("#clerk-mount"));
+  } else {
+    $("#clerk-mount").hidden = true;
+    $("#dev-signin").hidden = false;
+    $("#dev-user").focus();
+  }
+}
+
 
 // ---------- dom helpers ----------
 
@@ -183,10 +479,15 @@ function fillCoachPicker(container, name, selected) {
   }
 }
 
-function showOnboarding() {
+function showOnboarding(prefillName = "") {
   $("#app").hidden = true;
+  $("#signin").hidden = true;
   $("#onboarding").hidden = false;
+  $("#ob-storage").textContent = syncEnabled()
+    ? "Your conversations and profile are saved to your account, so they're on your phone and your laptop."
+    : "Your conversations and profile are saved only in this browser.";
   fillCoachPicker($("#ob-coach"), "coach", "junie");
+  if (prefillName && !$("#ob-name").value) $("#ob-name").value = prefillName;
   $("#ob-name").focus();
 }
 
@@ -201,8 +502,10 @@ $("#onboard-form").addEventListener("submit", (e) => {
     work: "",
     people: "",
     accessCode: "",
+    updated: Date.now(),
   };
   saveSettings();
+  markDirty("profile", "me", { at: settings.updated });
   startApp();
   if (accessCodeRequired) openSettings({ focusAccess: true });
 });
@@ -253,6 +556,7 @@ function persistCurrent() {
   }
   convos = [current, ...convos.filter((c) => c.id !== current.id)];
   saveConvos();
+  markDirty("convo", current.id, { at: current.updated });
   renderConvoList();
 }
 
@@ -261,6 +565,7 @@ function deleteConvo(id) {
   if (!c || !confirm(`Delete "${c.title}"? This can't be undone.`)) return;
   convos = convos.filter((x) => x.id !== id);
   saveConvos();
+  markDirty("convo", id, { deleted: true });
   if (current?.id === id) {
     if (convos[0]) openConvo(convos[0].id);
     else newConvo();
@@ -556,7 +861,7 @@ async function requestReply() {
     const res = await fetch("/api/chat", {
       method: "POST",
       signal: controller.signal,
-      headers: { "content-type": "application/json", "x-access-code": settings.accessCode || "" },
+      headers: await authHeaders(),
       body: JSON.stringify({
         coach: c.coach,
         style: c.style,
@@ -631,6 +936,7 @@ function finishReply(c, text) {
     c.updated = Date.now();
     convos = [c, ...convos.filter((x) => x.id !== c.id)];
     saveConvos();
+    markDirty("convo", c.id, { at: c.updated });
     renderConvoList();
   }
 }
@@ -686,6 +992,7 @@ function openSettings({ focusAccess = false } = {}) {
   access.hidden = !accessCodeRequired && !settings.accessCode;
   access.classList.toggle("flash", focusAccess);
   $("#settings").returnValue = "";
+  closeSidebar();
   $("#settings").showModal();
   if (focusAccess) form.elements.accessCode.focus();
 }
@@ -704,8 +1011,10 @@ $("#settings").addEventListener("close", () => {
     accessCode: form.elements.accessCode.value.trim(),
     coach: form.elements.coach.value || settings.coach,
     style: form.elements.style.value || settings.style,
+    updated: Date.now(),
   };
   saveSettings();
+  markDirty("profile", "me", { at: settings.updated });
   // Defaults apply to new conversations; an unstarted one can pick them up now.
   if (changedCoach && current && !current.messages.length) {
     current.coach = settings.coach;
@@ -713,11 +1022,20 @@ $("#settings").addEventListener("close", () => {
   }
   render();
 });
-$("#wipe").addEventListener("click", () => {
-  if (!confirm("Delete your profile and every conversation from this browser? This can't be undone.")) return;
+$("#wipe").addEventListener("click", async () => {
+  const where = syncEnabled() ? "from your account and every device" : "from this browser";
+  if (!confirm(`Delete your profile, conversations, and saved scripts ${where}? This can't be undone.`)) return;
+  if (syncEnabled()) {
+    try {
+      const res = await fetch("/api/sync", { method: "DELETE", headers: await authHeaders() });
+      if (!res.ok) throw new Error();
+    } catch {
+      alert("Couldn't reach Humanual, so nothing was deleted. Try again when you're online.");
+      return;
+    }
+  }
   try {
-    localStorage.removeItem(KEY_SETTINGS);
-    localStorage.removeItem(KEY_CONVOS);
+    for (const name of ["settings", "convos", "scripts", "outbox", "cursor"]) localStorage.removeItem(keyFor(name));
   } catch {}
   location.reload();
 });
@@ -761,10 +1079,7 @@ function startConvoWith(mode, text, { sendNow }) {
 
 // ---------- scripts ----------
 
-const KEY_SCRIPTS = "humanual.scripts.v1";
-let scripts = load(KEY_SCRIPTS, []);
 let shownScriptId = null;
-const saveScripts = () => save(KEY_SCRIPTS, scripts);
 
 const CHANNELS = {
   inperson: {
@@ -978,6 +1293,7 @@ function deleteScript(id) {
   if (!s || !confirm(`Delete "${s.script.title}"?`)) return;
   scripts = scripts.filter((x) => x.id !== id);
   saveScripts();
+  markDirty("script", id, { deleted: true });
   showScript(scripts[0] ?? EXAMPLE_SCRIPT);
 }
 
@@ -1014,7 +1330,7 @@ $("#script-form").addEventListener("submit", async (e) => {
     try {
       res = await fetch("/api/script", {
       method: "POST",
-      headers: { "content-type": "application/json", "x-access-code": settings.accessCode || "" },
+      headers: await authHeaders(),
       body: JSON.stringify({
         coach: settings.coach,
         style: settings.style,
@@ -1043,9 +1359,11 @@ $("#script-form").addEventListener("submit", async (e) => {
     }
     if (!res.ok || !data.script) throw new Error(data.error || `Something went wrong (${res.status}).`);
 
-    const entry = { id: crypto.randomUUID(), channel, task, details, coach: settings.coach, created: Date.now(), script: data.script };
+    const now = Date.now();
+    const entry = { id: crypto.randomUUID(), channel, task, details, coach: settings.coach, created: now, updated: now, script: data.script };
     scripts.unshift(entry);
     saveScripts();
+    markDirty("script", entry.id, { at: now });
     status.textContent = "";
     $("#script-task").value = "";
     $("#script-details").value = "";
@@ -1068,17 +1386,53 @@ if ("serviceWorker" in navigator) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
 }
 
+// ---------- account buttons ----------
+
+$("#dev-signin").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const id = $("#dev-user").value.trim();
+  if (!/^[\w.@-]{1,64}$/.test(id)) return;
+  save("humanual.devUser", id);
+  enterAs(`dev_${id}`);
+});
+$("#sign-out").addEventListener("click", signOut);
+$("#manage-account").addEventListener("click", () => clerk?.openUserProfile());
+
 // ---------- boot ----------
 
 (async function boot() {
+  let config = null;
   try {
-    const res = await fetch("/api/config");
-    accessCodeRequired = (await res.json()).accessCodeRequired;
-  } catch {}
-  if (settings?.name) {
-    startApp();
-    if (location.hash === "#scripts") showView("scripts");
-  } else {
-    showOnboarding();
+    config = await (await fetch("/api/config")).json();
+    save("humanual.config", config);
+  } catch {
+    config = load("humanual.config", null); // offline: use what we saw last time
   }
+  accessCodeRequired = Boolean(config?.accessCodeRequired);
+  authMode = config?.auth ?? "none";
+
+  if (authMode === "none") return enterAs(null);
+
+  if (authMode === "clerk") {
+    try {
+      clerk = await loadClerk(config.clerkPublishableKey);
+    } catch {
+      // Offline or sign-in service unreachable: open the last account's saved copy.
+      const last = load("humanual.lastUser", null);
+      if (last) return enterAs(last);
+      $("#signin-error").hidden = false;
+      return showSignIn();
+    }
+    if (clerk.user) return enterAs(clerk.user.id, { prefillName: clerk.user.firstName ?? "" });
+    showSignIn();
+    clerk.addListener(({ user }) => {
+      if (user && !uid) enterAs(user.id, { prefillName: user.firstName ?? "" });
+    });
+    return;
+  }
+
+  // Dev sign-in (local testing only).
+  const devUser = load("humanual.devUser", "");
+  if (devUser) return enterAs(`dev_${devUser}`);
+  showSignIn();
 })();

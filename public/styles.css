@@ -284,6 +284,15 @@ input:not([type=radio]):not([type=checkbox]), textarea {
 .sheet-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; flex-wrap: wrap; }
 .field.flash input { border-color: var(--danger); box-shadow: 0 0 0 3px var(--crisis-bg); }
 
+/* Account */
+.account { display: grid; gap: 2px; padding: 0 8px 6px; font-size: 13px; }
+.account-email { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sync-status { color: var(--muted); }
+.account-actions { display: flex; gap: 14px; margin-top: 2px; }
+.account-actions .linkback { font-size: 13px; }
+.dev-signin { margin-top: 8px; }
+#clerk-mount { display: flex; justify-content: center; margin-top: 8px; }
+
 /* "Get me ready" setup */
 .practice-setup { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
 .practice-setup h3 { margin: 6px 0 4px; font-size: 20px; }
