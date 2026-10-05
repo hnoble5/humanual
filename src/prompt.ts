@@ -79,3 +79,24 @@ export function buildSystem(opts: {
     { type: "text", text: userBlock },
   ];
 }
+
+const COACH_NAMES: Record<CoachId, string> = { junie: "Junie", otis: "Otis" };
+
+/**
+ * A short reminder sent as the last thing the model reads on every turn. In a
+ * long conversation the system prompt is far back and replies drift toward
+ * the length and tone of earlier replies; this keeps the key rules close.
+ * It isn't stored in the conversation, so it never piles up.
+ */
+export function turnReminder(opts: { coach: CoachId; style: Style; mode: ModeId | null; profile: Profile }) {
+  const who = opts.profile.name?.trim() || "the user";
+  const lines = [
+    `Reminder for this reply: you are ${COACH_NAMES[opts.coach]}, ${opts.style === "direct" ? "Direct" : "Gentle"} style, coaching ${who}, an adult who may be neurodivergent and is likely reading on a phone.`,
+    "Answer first with the exact words or your verdict. One recommendation. Under about 120 words unless they asked for a script, prep card, or role-play feedback. Use their specific details; cut anything generic. No recap or pep talk.",
+    "Keep your persona's tone, plain words, no therapy-speak. If they're venting, a short acknowledgment then the move.",
+  ];
+  if (opts.mode === "practice") {
+    lines.push("If a role-play scene is running, stay in character with short turns, unless they typed hint, pause, help, or stop.");
+  }
+  return lines.join(" ");
+}

@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import type { BetaMessageParam } from "@anthropic-ai/sdk/resources/beta/messages/messages";
 import { CRISIS_SYSTEM_NOTE, crisisCheck } from "./crisis";
-import { buildSystem, COACHES, MODES, type CoachId, type ModeId, type Profile, type Style } from "./prompt";
+import { buildSystem, COACHES, MODES, turnReminder, type CoachId, type ModeId, type Profile, type Style } from "./prompt";
 import { CHANNELS, ScriptSchema, scriptRequest, type ChannelId } from "./script";
 import { authMode, getUserId } from "./auth";
 import { deleteAll, sync, SyncError } from "./storage";
@@ -143,8 +143,14 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
   const latest = req.messages[req.messages.length - 1].content;
   const crisis = crisisCheck(latest);
 
-  const messages: BetaMessageParam[] = [...req.messages];
-  if (crisis) messages.push({ role: "system", content: CRISIS_SYSTEM_NOTE });
+  // The per-turn reminder (and crisis note, when flagged) goes after the latest
+  // user message, where it has the most pull. It's never saved in history.
+  const messages: BetaMessageParam[] = [
+    ...req.messages,
+    { role: "system", content: crisis ? `${CRISIS_SYSTEM_NOTE}
+
+${turnReminder(req)}` : turnReminder(req) },
+  ];
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const stream = client.beta.messages.stream({
