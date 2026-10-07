@@ -1,0 +1,611 @@
+{
+  "recorded": "2026-10-07",
+  "profile": {
+    "name": "Alex",
+    "about": "I'm autistic. Phone calls and small talk with strangers are the hardest for me. I'd rather text when I can. I over-explain when I'm nervous.",
+    "work": "QA engineer at a mid-size software company. Hybrid: in the office Tuesdays and Thursdays. I'm also starting to take on QA consulting clients on the side.",
+    "people": "Jordan (developer on my team): friendly 1:1 but takes credit in standup.\nPriya (my manager): fair, busy, prefers short updates."
+  },
+  "conversations": [
+    {
+      "id": "dentist",
+      "label": "I keep putting off a call to the dentist",
+      "mode": "everyday",
+      "coach": "junie",
+      "style": "gentle",
+      "messages": [
+        {
+          "role": "user",
+          "content": "I need to call my dentist to move my cleaning and I've put it off for two weeks. Every time I pick up the phone I freeze."
+        },
+        {
+          "role": "assistant",
+          "content": "**Read this when they answer:**\n\n> \"Hi, this is Alex [last name]. I need to move my cleaning on [date]. Do you have anything [next week / a weekday morning]?\"\n\n**If they offer a time:**\n> \"That works. Thanks.\"\n\n**If you freeze or need a second:**\n> \"Sorry, one second, let me check my calendar.\"\n\nYou don't need to give a reason for moving it. They reschedule cleanings all day, and one sentence is all they want.\n\n**Before you dial:** write down two times that work for you and keep this script open on screen. That way there's nothing to think up mid-call.\n\nTwo weeks of freezing is a lot to carry. Also check your last reminder text or their website first. Many offices let you reschedule there with no call at all."
+        },
+        {
+          "role": "user",
+          "content": "What if they ask why I'm rescheduling?"
+        },
+        {
+          "role": "assistant",
+          "content": "**If they ask, say:**\n\n> \"Just a scheduling conflict.\"\n\nThat's the whole answer. It's true enough, and front desks hear it constantly. They'll move on to finding you a new time.\n\n**Most likely they won't ask at all.** If they do, it's usually just to fill a field in their system, not because they care.\n\nSince you tend to over-explain when nervous: stop after those four words, even if there's a pause. The pause is them typing, not waiting for more."
+        }
+      ]
+    },
+    {
+      "id": "credit",
+      "label": "A coworker took credit for my bug find",
+      "mode": "workplace",
+      "coach": "otis",
+      "style": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "In standup today Jordan said he \"tracked down\" the login bug. I found it, wrote the repro steps, and sent them to him yesterday. Nobody said anything and I didn't either."
+        },
+        {
+          "role": "assistant",
+          "content": "**Staying quiet in the moment was fine. Correcting someone mid-standup usually looks worse than the credit grab.** But this is a pattern with Jordan, so close the loop with him privately. He's friendly 1:1, so use that.\n\nMessage him today:\n\n> Hey, quick thing. In standup you said you tracked down the login bug. I found that one and sent you the repro steps yesterday. Going forward, can you mention that when it comes up? Thanks.\n\n- Behavior plus ask. No accusation, no backstory.\n- Don't add \"maybe I'm overthinking\" or explain why it matters. That's the over-explaining creeping in. The ask stands on its own.\n\nRoot cause: standup is where credit gets assigned, and right now Jordan's the only one talking. That's it. Send it."
+        },
+        {
+          "role": "user",
+          "content": "Should I bring it up with Priya?"
+        },
+        {
+          "role": "assistant",
+          "content": "**Not yet.** Going to Priya before you've talked to Jordan looks like skipping a step, and she'll likely ask, \"Did you tell him?\"\n\nWhat protects you now is making your own work visible. Priya likes short updates, so give her one. In standup:\n\n> I found the login bug and sent repro steps to Jordan. He's on the fix.\n\nFacts, no jab at Jordan. Say it once, before he can.\n\nBring it to Priya only if it keeps happening after you've messaged Jordan. Then frame it as visibility, not a complaint about him. Stakes right now: low. One standup doesn't define your reputation."
+        }
+      ]
+    },
+    {
+      "id": "slack",
+      "label": "Answer a snippy Slack message",
+      "mode": "reply",
+      "coach": "otis",
+      "style": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "A developer replied to my bug report on Slack: \"Per my last message, this isn't a bug, it's working as designed. Please read the ticket before filing.\" I did read the ticket. The design doc says the opposite. Help me answer without starting a war."
+        },
+        {
+          "role": "assistant",
+          "content": "> I did check the ticket. The design doc says [paste the exact line] ([link to that section]), which is why I filed it. If the doc is out of date, can you point me to the current spec? I'll update or close the ticket once we know which one is right.\n\n\"Per my last message\" is a jab. Don't take the bait.\n\n- **Quote the doc, don't paraphrase it.** Let the doc argue with them so you don't have to.\n- **\"If the doc is out of date\"** lets them be wrong without losing face. That's what keeps this from becoming a war.\n- **One line of defense, max.** Resist adding more. Every extra sentence of explaining reads as defensive.\n\nPasses the forward-to-Priya test."
+        },
+        {
+          "role": "user",
+          "content": "Can you make it shorter?"
+        },
+        {
+          "role": "assistant",
+          "content": "> The design doc says [exact line] ([link]). If that's outdated, can you point me to the current spec? I'll close the ticket once we know which is right.\n\nCut \"I did check the ticket.\" The quote already proves you read it, and skipping the rebuttal reads calmer."
+        }
+      ]
+    },
+    {
+      "id": "meetup",
+      "label": "Meet potential clients at a meetup",
+      "mode": "networking",
+      "coach": "junie",
+      "style": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "I'm going to a local software testing meetup on Thursday. I'd like to meet one or two people who might need QA consulting, but I hate walking up to strangers."
+        },
+        {
+          "role": "assistant",
+          "content": "**Don't walk up to anyone. Arrive 10 minutes early, sit down, and talk to whoever's next to you.**\n\n> \"Hi, I'm Alex. Have you been to one of these before?\"\n\nA seated chat before a talk is the easiest kind: no approaching, and the talk starting gives you a built-in exit.\n\nWhen they ask what you do:\n\n> \"I'm a QA engineer, and I've started taking on QA consulting clients on the side.\"\n\nThen stop. One sentence keeps you from over-explaining.\n\nMost people there will be testers, not buyers. Listen for leads, managers, or founders saying things like \"we don't have enough testers\" or \"releases keep breaking.\" If you hear it:\n\n> \"That's the kind of thing I help with. Could I connect with you on LinkedIn?\"\n\nThursday's also an office day, so plan a quiet evening after."
+        },
+        {
+          "role": "user",
+          "content": "What do I say if someone asks what I do and I go blank?"
+        },
+        {
+          "role": "assistant",
+          "content": "**If you go blank, say this:**\n\n> \"I test software.\"\n\nThree words, true, and enough. Most people will follow up with a question, which gives you a second to recover.\n\nIf you need a beat first:\n\n> \"Ha, my mind just went blank. I test software.\"\n\nAdmitting the blank out loud is fine. Most people at a meetup have done it themselves, and it's a blip they'll forget by the next talk.\n\nThe consulting part can come later, or not at all with that person.\n\n**Save both lines in your phone's notes** and glance at them while you're getting a coffee before you sit down."
+        }
+      ]
+    },
+    {
+      "id": "gym",
+      "label": "Rehearse cancelling a gym membership",
+      "mode": "practice",
+      "coach": "otis",
+      "style": "direct",
+      "messages": [
+        {
+          "role": "user",
+          "content": "Get me ready for this. It happens on a phone call.\nSituation: Cancel a membership when they push upsells\n\nLet's role-play it. Set the scene in one or two lines (who you're playing and what my goal is), then start in character."
+        },
+        {
+          "role": "assistant",
+          "content": "**Scene:** I'm Dana, a retention rep at FitCore Gym. My job is to keep you from canceling. **Your goal:** get it canceled today, with a confirmation number, without agreeing to any offer.\n\nDifficulty: easy. Type **hint** for a line, **stop** to end and get feedback.\n\n---\n\n*ring... ring...*\n\n\"Thanks for calling FitCore, this is Dana! Can I get your name and the phone number on the account?\""
+        },
+        {
+          "role": "user",
+          "content": "Hi, I'd like to cancel my membership, please."
+        },
+        {
+          "role": "assistant",
+          "content": "\"Oh no, sorry to hear that! I can definitely help. I just need your name and the phone number on the account first so I can pull it up.\"\n\n*(typing sounds)*\n\n\"And while I've got you, can I ask what's making you want to leave us?\""
+        },
+        {
+          "role": "user",
+          "content": "No thanks. I'd just like to cancel it today."
+        },
+        {
+          "role": "assistant",
+          "content": "\"Totally understand! I just can't pull up the account without your name and phone number, so if you can give me those, I'll get started.\"\n\n*(pause)*\n\n\"And just so you know before I process anything, we're running a special right now. I can drop you to $9.99 a month for the next three months instead of canceling. Same access, way less. Want me to switch you to that instead?\""
+        },
+        {
+          "role": "user",
+          "content": "stop"
+        },
+        {
+          "role": "assistant",
+          "content": "**Verdict: You held the line well. You just skipped the one thing she needed.**\n\n**What worked**\n- \"No thanks. I'd just like to cancel it today.\" No reason, no over-explaining. She asked why and got nothing to argue with. That's exactly right.\n\n**What to fix**\n- **She asked for your name and number twice, and you never gave them.** Not answering keeps the call going longer. Give the info and repeat your goal in the same breath.\n- **You stopped right at the upsell, which is the hard part.** One line, repeated as many times as needed:\n\n> **Name/number:** \"It's Alex [last name], [phone number]. I'd like to cancel today.\"\n> **Any offer:** \"No thanks. Please cancel it and give me a confirmation number.\"\n> **Before hanging up:** \"What's the confirmation number? Will I get it by email?\"\n\n**Scores**\n- Clarity: 9\n- Composure: 9\n- Listening: 5\n- Moving toward goal: 6\n\nRerun from the upsell, or make Dana pushier?"
+        }
+      ]
+    },
+    {
+      "id": "k",
+      "label": "My friend replied \"k\". Is she mad?",
+      "mode": null,
+      "coach": "junie",
+      "style": "gentle",
+      "messages": [
+        {
+          "role": "user",
+          "content": "I told my friend I can't make it to her birthday dinner and she texted back \"k\". Is she mad at me?"
+        },
+        {
+          "role": "assistant",
+          "content": "**Probably a little disappointed, not angry.** \"k\" can just be a quick reply, but for a birthday it often means \"noted, and I'm a bit bummed.\"\n\nThe unwritten rule: when you miss a birthday, people want a sign you still care about *them*, not more explanation of why you can't come. Stakes: medium. It's fixable with one text.\n\nSend something like:\n\n> Sorry again to miss your dinner. I hope it's a great night. Can I take you out for a birthday coffee next week? 🎂\n\nThen stop there. No extra reasons or apologies, even if you feel the urge. One warm text plus a plan says \"you matter to me\" better than a long explanation."
+        },
+        {
+          "role": "user",
+          "content": "Should I say something or leave it alone?"
+        },
+        {
+          "role": "assistant",
+          "content": "**Say something: send that one text.** Leaving \"k\" alone can read as \"I didn't notice you were bummed.\" A short, warm reply shows you did, without making a big deal of it.\n\nIf she answers with something short again, or doesn't answer, leave it there. You've done your part, and the coffee plan does the rest. No follow-up explanations needed.\n\nEither way, this is a blip, not a crack in the friendship."
+        }
+      ]
+    }
+  ],
+  "scripts": [
+    {
+      "channel": "inperson",
+      "coach": "junie",
+      "task": "Return shoes without a receipt",
+      "script": {
+        "title": "Return shoes in store without a receipt",
+        "energy": "medium",
+        "stakes": "low",
+        "norm": "Without a receipt, stores often offer store credit at the lowest recent price, may ask for ID, and the clerk doesn't need your reasons.",
+        "opener": "Hi. I'd like to return these shoes. I don't have the receipt.",
+        "ask": "I paid with [card / cash]. Can you look it up with my card? It was about [date] for around [$ amount].",
+        "responses": [
+          {
+            "if": "We can only give store credit without a receipt.",
+            "say": "Okay. Store credit is fine. / Can a manager check if a refund to my card is possible?"
+          },
+          {
+            "if": "I'll need to see your ID.",
+            "say": "Sure, here it is."
+          },
+          {
+            "if": "We can't take returns without a receipt.",
+            "say": "Okay. Could I ask a manager, please?"
+          }
+        ],
+        "stall": "Let me check my phone for the order. One second.",
+        "exit": "Okay, thanks. I'll come back with the receipt.",
+        "closer": "Thanks for your help.",
+        "message": "",
+        "alternative": "If you paid by card or bought online, check your email or store account for a digital receipt, or look up the store's return policy online before you go.",
+        "comfort": [
+          "Bring the shoes in the box, the card you paid with, and your ID; the card lets them find the purchase without a paper receipt.",
+          "You only need the ask line. If you feel like explaining why you're returning them, skip it; 'didn't fit' is plenty if they ask."
+        ]
+      }
+    },
+    {
+      "channel": "inperson",
+      "coach": "junie",
+      "task": "Ask a pharmacist about a side effect",
+      "script": {
+        "title": "Ask a pharmacist about a side effect",
+        "energy": "low",
+        "stakes": "medium",
+        "norm": "Pharmacists expect these questions. It's free, needs no appointment, and you can ask to talk somewhere more private.",
+        "opener": "Hi, can I ask the pharmacist a quick question about a medication?",
+        "ask": "I'm taking [medication name], [dose], since [date]. I've noticed [symptom]. It happens [how often]. Is that a normal side effect? Should I do anything about it?",
+        "responses": [
+          {
+            "if": "They ask what else you take",
+            "say": "I also take [other medications or supplements]. Or: Nothing else."
+          },
+          {
+            "if": "They say it's common and usually fades",
+            "say": "Okay. How long before it should get better? When should I worry?"
+          },
+          {
+            "if": "They say to check with your doctor",
+            "say": "Okay. Should I keep taking it until I talk to them?"
+          }
+        ],
+        "stall": "Sorry, let me check my notes. One second.",
+        "exit": "Thanks, I'll call my doctor about it.",
+        "closer": "That helps. Thank you.",
+        "message": "",
+        "alternative": "Many pharmacy apps (Walgreens, for one) let you message a pharmacist in writing, so check whether yours does.",
+        "comfort": [
+          "Bring the bottle or a photo of the label, and type the symptom details (when it started, how often, how bad) on your phone so you can read them instead of over-explaining.",
+          "If they ask a question you didn't plan for, 'I'm not sure' is a complete answer. They hear it all day."
+        ]
+      }
+    },
+    {
+      "channel": "inperson",
+      "coach": "otis",
+      "task": "Order at a busy coffee counter",
+      "script": {
+        "title": "Order at a busy coffee counter",
+        "energy": "low",
+        "stakes": "low",
+        "norm": "At a busy counter, speed beats politeness: say size, then drink, then any changes. No small talk needed.",
+        "opener": "Hi. Can I get a [size] [drink]?",
+        "ask": "A [size] [drink] with [milk/change], please. For here / to go.",
+        "responses": [
+          {
+            "if": "They ask \"Name for the order?\"",
+            "say": "Alex."
+          },
+          {
+            "if": "They ask \"Anything else?\"",
+            "say": "No, that's it. Thanks."
+          },
+          {
+            "if": "They ask \"Hot or iced?\" or about milk or size",
+            "say": "[Hot/Iced]. [Oat/Regular] milk is fine."
+          }
+        ],
+        "stall": "Sorry, could you say that again? It's loud in here.",
+        "exit": "Actually, I need another minute. Go ahead.",
+        "closer": "Thanks.",
+        "message": "",
+        "alternative": "Many chains (and plenty of local shops) let you order ahead in their app, so you just grab your cup from the pickup counter.",
+        "comfort": [
+          "Decide your full order while you're in line and read it off this screen, in this order: size, drink, changes. Over-explaining only slows the line down.",
+          "After paying, step aside to the pickup area and listen for your name or drink. If you can't tell whether a cup is yours, check the label first, then ask: \"Is this the [drink] for Alex?\""
+        ]
+      }
+    },
+    {
+      "channel": "inperson",
+      "coach": "otis",
+      "task": "Get out of a long chat with a neighbor",
+      "script": {
+        "title": "Wrap up a long chat with a neighbor",
+        "energy": "low",
+        "stakes": "low",
+        "norm": "You don't need a reason to leave. A friendly line plus physically moving away is the expected signal. Neighbors use it constantly.",
+        "opener": "[Neighbor's name], it's been good catching up.",
+        "ask": "I need to head inside now.",
+        "responses": [
+          {
+            "if": "They keep going with their story",
+            "say": "Sorry to cut in. I really do have to go. Let's finish this another time."
+          },
+          {
+            "if": "\"Oh, one more quick thing\"",
+            "say": "Sure, quick one. Then I have to run."
+          },
+          {
+            "if": "\"What are you up to?\" or \"Busy day?\"",
+            "say": "Just some stuff at home. See you around."
+          }
+        ],
+        "stall": "Hang on, let me just put these [bags/keys] down. Okay, I really need to get going.",
+        "exit": "I have to go. Bye, [name].",
+        "closer": "Good seeing you. Have a good [evening/weekend].",
+        "message": "",
+        "alternative": "",
+        "comfort": [
+          "Say the ask once and stop. No reasons, no backstory. One extra sentence just restarts the chat. You mentioned you over-explain, so this is the spot to watch.",
+          "Wait for them to finish a sentence, then say the line while taking a step toward your door. The step does half the work."
+        ]
+      }
+    },
+    {
+      "channel": "phone",
+      "coach": "junie",
+      "task": "Reschedule a doctor's appointment",
+      "script": {
+        "title": "Reschedule a doctor's appointment by phone",
+        "energy": "low",
+        "stakes": "low",
+        "norm": "You don't need to say why you're rescheduling. Front desks do this all day; 'a scheduling conflict' is plenty, if they even ask.",
+        "opener": "Hi, my name is [full name]. I have an appointment with Dr. [name] on [date] at [time], and I need to reschedule it.",
+        "ask": "What do you have available [this week / next week]? [Mornings / Afternoons] work best for me.",
+        "responses": [
+          {
+            "if": "Can I get your date of birth?",
+            "say": "Sure, it's [date of birth]."
+          },
+          {
+            "if": "Our next opening isn't until [far-off date].",
+            "say": "Okay, I'll take that. Can you also put me on the cancellation list?"
+          },
+          {
+            "if": "There may be a fee since it's less than [24/48] hours' notice.",
+            "say": "Understood. How much is the fee?"
+          }
+        ],
+        "stall": "Sorry, let me check my calendar. One second.",
+        "exit": "Let me check my schedule and call back. Thanks for your help.",
+        "closer": "So I'm booked for [day, date] at [time] with Dr. [name]. Thank you, bye.",
+        "message": "",
+        "alternative": "Many doctor's offices let you reschedule in their patient portal app or website, or by text reply to their appointment reminder. Check there first.",
+        "comfort": [
+          "Before you dial, have your current appointment date and time, your date of birth, and your calendar open, so you can say yes to a slot on the spot.",
+          "If they ask why you're rescheduling, one line is enough: 'Just a scheduling conflict.' Then stop and let them look for times."
+        ]
+      }
+    },
+    {
+      "channel": "phone",
+      "coach": "otis",
+      "task": "Dispute a charge on my internet bill",
+      "script": {
+        "title": "Dispute a charge on my internet bill by phone",
+        "energy": "medium",
+        "stakes": "medium",
+        "norm": "Reps can usually credit wrong charges on the spot. Ask for the credit directly, then get a reference number. That's the receipt.",
+        "opener": "Hi. I'm calling about a charge on my internet bill that I think is a mistake.",
+        "ask": "On my [month] bill there's a charge for [charge name] for [$amount]. I didn't [order / agree to / receive] that. Can you remove it and credit my account?",
+        "responses": [
+          {
+            "if": "They say it's a real fee (equipment, late fee, price change)",
+            "say": "I understand. I didn't [agree to it / have that equipment / get notice]. Can you remove it as a one-time credit?"
+          },
+          {
+            "if": "They say they can't remove it",
+            "say": "Okay. Can you transfer me to billing or a supervisor who can review it?"
+          },
+          {
+            "if": "They say they've applied the credit",
+            "say": "Thanks. Can I get a reference number? And which bill will the credit show on?"
+          }
+        ],
+        "stall": "Let me pull up my bill. One second.",
+        "exit": "I need to go. Can you add a note to my account about this dispute? I'll call back.",
+        "closer": "Thanks. Just to confirm: [$amount] credit, on my [month] bill, reference number [number]. Bye.",
+        "message": "",
+        "alternative": "Check your provider's app or website for billing chat. Many let you dispute a charge in text, and you get a transcript.",
+        "comfort": [
+          "Have the bill open before you dial: account number, the exact charge line, and your account PIN or security answer. Keep a note ready for the rep's name and the reference number.",
+          "You over-explain when nervous. Say the charge and one reason, then stop. If it goes quiet, they're looking it up. You don't need to fill the gap."
+        ]
+      }
+    },
+    {
+      "channel": "phone",
+      "coach": "otis",
+      "task": "Cancel a subscription that only cancels by phone",
+      "script": {
+        "title": "Cancel a subscription by phone",
+        "energy": "medium",
+        "stakes": "medium",
+        "norm": "The rep is paid to talk you out of it. Saying 'no thanks' three times isn't rude. It's the expected script.",
+        "opener": "Hi. I'm calling to cancel my subscription.",
+        "ask": "The account is under [name] and [email or phone on the account]. Please cancel it today, with no renewal.",
+        "responses": [
+          {
+            "if": "They ask why you're cancelling",
+            "say": "I just don't need it anymore. Please go ahead and cancel."
+          },
+          {
+            "if": "They offer a discount, free months, or a pause",
+            "say": "No thank you. I want to cancel, not pause."
+          },
+          {
+            "if": "They say it stays active until the end of the billing period",
+            "say": "That's fine. Can you confirm I won't be charged again after [date]?"
+          }
+        ],
+        "stall": "Sorry, let me find that. One second.",
+        "exit": "I'm not interested in offers. If you can't cancel it, please transfer me to someone who can.",
+        "closer": "Can I get a confirmation number and an email confirming it? ... Thanks. That's all I need. Bye.",
+        "message": "",
+        "alternative": "",
+        "comfort": [
+          "Have the account email, account number, and last 4 digits of the card open before you dial, plus a note for the rep's name, time, and confirmation number.",
+          "You don't owe a reason. If you start explaining, stop and repeat your ask line word for word. Broken record is the strategy, not a failure."
+        ]
+      }
+    },
+    {
+      "channel": "phone",
+      "coach": "junie",
+      "task": "Answer a call from an unknown number",
+      "script": {
+        "title": "Answer a call from an unknown number",
+        "energy": "low",
+        "stakes": "low",
+        "norm": "An unknown caller has to say who they are first. You owe them no details or explanations until they do.",
+        "opener": "Hello, this is Alex.",
+        "ask": "Sorry, who's calling, and what's this about?",
+        "responses": [
+          {
+            "if": "It's sales, a survey, or a company you don't recognize",
+            "say": "No thanks. Please take me off your list. Bye."
+          },
+          {
+            "if": "They ask you to confirm a code, birthday, password, or account number",
+            "say": "I don't share that on calls I didn't expect. I'll call [company] back on the number from their website."
+          },
+          {
+            "if": "It's real, like a doctor's office, delivery, or possible consulting client",
+            "say": "Thanks for calling. Could you text or email me the details? This number takes texts."
+          }
+        ],
+        "stall": "Sorry, could you repeat your name and company? One second, I'm writing it down.",
+        "exit": "I can't talk right now. Please leave a voicemail or text me.",
+        "closer": "Okay, thanks. Bye.",
+        "message": "",
+        "alternative": "You can let unknown numbers go to voicemail, or turn on Silence Unknown Callers (iPhone) or Call Screen (Pixel) so the caller has to explain first.",
+        "comfort": [
+          "Saying 'Bye' and hanging up after the 'No thanks' line is normal for unexpected calls. You don't need to give a reason, and a reason just invites a pitch.",
+          "If it could be a consulting lead, keep a notes app open so you can write down their name, company, and callback number instead of improvising on the spot."
+        ]
+      }
+    },
+    {
+      "channel": "written",
+      "coach": "junie",
+      "task": "Decline an invitation without over-explaining",
+      "script": {
+        "title": "Decline an invitation by text or email (no long explanation)",
+        "energy": "low",
+        "stakes": "low",
+        "norm": "A short 'Thanks, I can't make it' is a complete answer. Reasons are optional, and extra detail often invites people to problem-solve.",
+        "opener": "Hi [name], thanks for inviting me to [event].",
+        "ask": "I can't make it this time, but I hope it's a great [night/party/day].",
+        "responses": [
+          {
+            "if": "They ask why",
+            "say": "It just doesn't work for me this time. Have fun!"
+          },
+          {
+            "if": "They suggest another date or try to persuade you",
+            "say": "Thanks for thinking of me. I'll pass on that one too."
+          },
+          {
+            "if": "They say \"No worries, next time!\"",
+            "say": "Thanks for understanding."
+          }
+        ],
+        "stall": "You don't have to reply right away. If you need time, send: \"Let me check and get back to you tomorrow.\"",
+        "exit": "I'm going to keep it simple and say no for now, but thank you.",
+        "closer": "Thanks again for the invite.",
+        "message": "Hi [name], thanks for inviting me to [event]. I can't make it this time, but I hope it's a great [night/party/day]. Thanks again for the invite.",
+        "alternative": "If the invite came through Google Calendar, Evite, Partiful, or a Facebook event, tapping 'Decline' or 'Can't go' with no note is an accepted way to say no.",
+        "comfort": [
+          "Before you hit send, delete any sentence that starts with \"because,\" \"I just,\" or \"I'm so sorry.\" Those are the over-explaining lines.",
+          "Send it within a day or two of the invite. A quick, clear no lands better than a late maybe."
+        ]
+      }
+    },
+    {
+      "channel": "written",
+      "coach": "otis",
+      "task": "Follow up on an email nobody answered",
+      "script": {
+        "title": "Follow up on an unanswered email",
+        "energy": "low",
+        "stakes": "low",
+        "norm": "One follow-up after 3–5 business days is normal, not pushy. Silence usually means a buried inbox, not a no.",
+        "opener": "Hi [Name],\n\nJust following up on my email from [day] about [topic].",
+        "ask": "Could you [specific thing you need, e.g. confirm / send / approve] by [date]?",
+        "responses": [
+          {
+            "if": "\"Sorry, missed this. I'll look today.\"",
+            "say": "No problem. Thanks, [Name]."
+          },
+          {
+            "if": "\"This isn't me. Try [other person].\"",
+            "say": "Thanks, I'll reach out to them."
+          },
+          {
+            "if": "\"Can you resend the details?\"",
+            "say": "Sure. Short version: [one-line summary]. Original is below / attached."
+          }
+        ],
+        "stall": "If they ask something you can't answer yet, reply: \"Good question. Let me check and get back to you by [day].\" Then actually check.",
+        "exit": "If there's still no reply a week later: \"No worries if this isn't a priority right now. I'll close this out on my end.\"",
+        "closer": "Thanks,\n[Your name]",
+        "message": "Subject: Re: [original subject]\n\nHi [Name],\n\nJust following up on my email from [day] about [topic].\n\nCould you [specific thing you need] by [date]?\n\nIf someone else handles this, just let me know who to contact.\n\nThanks,\n[Your name]",
+        "alternative": "If this person also uses Slack or Teams, a one-line nudge there with a link to the email often gets a faster answer.",
+        "comfort": [
+          "Hit Reply on your original email instead of starting a new one, so the context is already right there.",
+          "You over-explain when nervous. Don't retell the first email or apologize for following up. The thread does that job. Ship it as is."
+        ]
+      }
+    },
+    {
+      "channel": "written",
+      "coach": "junie",
+      "task": "Ask my landlord to fix something",
+      "script": {
+        "title": "Text or email your landlord to request a repair",
+        "energy": "low",
+        "stakes": "medium",
+        "norm": "Landlords act faster on short, factual requests with a photo, and a written request gives you a dated record if it drags on.",
+        "opener": "Hi [Landlord name], this is Alex in [unit/address].",
+        "ask": "The [item] in the [room] is [problem: leaking / not working / broken] since [date]. Could you have it repaired? I've attached a photo. I'm available [days/times] for someone to come in.",
+        "responses": [
+          {
+            "if": "They say they'll send someone and ask when you're home",
+            "say": "Thanks. [Day] between [time] and [time] works. Can you send me the repair person's name or company?"
+          },
+          {
+            "if": "They ask for more details or a photo",
+            "say": "Sure. It started [date]. It happens [always / when X]. Photo attached."
+          },
+          {
+            "if": "No reply after [3-5] days",
+            "say": "Hi [Landlord name], following up on my [date] message about the [item] in [unit]. When can it be repaired?"
+          }
+        ],
+        "stall": "If they ask something you're not sure about (like whether you caused it), reply: \"Thanks, let me check and get back to you by [day].\" No need to answer in the same minute.",
+        "exit": "If they call instead of replying: \"Thanks for calling. Could you text me the details so I have them written down?\"",
+        "closer": "Thanks, [Landlord name]. — Alex",
+        "message": "Subject: Repair request – [item], [unit/address]\n\nHi [Landlord name], this is Alex in [unit/address].\n\nThe [item] in the [room] is [problem] since [date]. Could you have it repaired? I've attached a photo.\n\nI'm available [days/times] for someone to come in.\n\nThanks,\nAlex",
+        "alternative": "If your landlord or building uses an online maintenance portal, submit it there; it timestamps the request for you.",
+        "comfort": [
+          "Stick to what, where, since when, and a photo. Skip the backstory or how it might have happened; the extra detail invites questions you don't need.",
+          "Take the photo and note the date it started before you write, so the message is just filling in brackets."
+        ]
+      }
+    },
+    {
+      "channel": "written",
+      "coach": "otis",
+      "task": "Reply to a passive-aggressive Slack message",
+      "script": {
+        "title": "Reply to a passive-aggressive Slack message",
+        "energy": "low",
+        "stakes": "medium",
+        "norm": "Answer the work fact, ignore the jab. Assume Priya or HR reads it later. Calm and boring wins here.",
+        "opener": "Hi [name], thanks for flagging.",
+        "ask": "[One fact that answers their point, e.g. 'The test run finished at [time] and results are in [ticket/link].'] Next step: I'll [action] by [day/time].",
+        "responses": [
+          {
+            "if": "They push back with another jab (\"Must be nice,\" \"Like I said before...\")",
+            "say": "Understood. [Action] will be done by [day/time]. I'll post here when it is."
+          },
+          {
+            "if": "They back off (\"No worries,\" \"All good\")",
+            "say": "Thanks."
+          },
+          {
+            "if": "They imply it's your fault (\"This should've been caught\")",
+            "say": "Here's what happened: [one fact]. I'll [fix or check] by [day/time]."
+          }
+        ],
+        "stall": "Let me check and get back to you by [time].",
+        "exit": "Let's keep the details in [ticket/thread] so it's all in one place.",
+        "closer": "Thanks.",
+        "message": "Hi [name], thanks for flagging. [One fact that answers their point.] Next step: I'll [action] by [day/time].",
+        "alternative": "If the message only needs acknowledgment, a ✅ emoji reaction is a complete reply on Slack.",
+        "comfort": [
+          "Cap it at three sentences. You over-explain when nervous, and every extra line reads as defensive. Delete any 'just,' 'sorry,' or reason they didn't ask for.",
+          "If they posted in a public channel, reply in the thread, not the main channel or a DM. Keeps the record visible without making it a show."
+        ]
+      }
+    }
+  ]
+}
