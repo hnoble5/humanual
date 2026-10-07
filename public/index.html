@@ -16,6 +16,12 @@
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
+  <!-- Public demo (/demo) -->
+  <div id="demo-bar" class="demobar" data-testid="demo-banner" hidden>
+    <strong>Demo</strong> · real coach replies, recorded ahead of time. Nothing you type is sent or saved. ·
+    <a data-testid="demo-back-link" href="https://elitetestautomation.com/#portfolio">&larr; back to elitetestautomation.com</a>
+  </div>
+
   <!-- Sign in -->
   <main id="signin" class="onboarding" hidden>
     <div class="onboard-card">
@@ -40,7 +46,7 @@
     <form id="onboard-form" class="onboard-card">
       <p class="brand">humanual</p>
       <h1>The unwritten manual for dealing with people.</h1>
-      <p class="lede">Exact words for calls, errands, coworkers, and messages. Practice conversations before they happen. No pressure to act "normal". You decide how much to adapt.</p>
+      <p class="lede">Exact words for calls, errands, coworkers, and messages. Practice conversations before they happen. Advice that fits how you communicate. You decide what to use.</p>
 
       <div class="notice">
         <strong>Your coach is an AI</strong>, not a person, a therapist, or a crisis service. <span id="ob-storage">Your conversations and profile are saved only in this browser.</span>
@@ -139,6 +145,10 @@
             <p class="muted" id="start-sub"></p>
           </div>
           <div class="mode-grid" id="mode-grid"></div>
+          <div class="demo-samples" id="demo-samples" data-testid="demo-samples" hidden>
+            <h3>Try a sample</h3>
+            <div class="sample-list" id="sample-list"></div>
+          </div>
           <div class="practice-setup" id="practice-setup" hidden></div>
           <div class="start-settings">
             <span class="muted">Coach</span>
@@ -152,6 +162,7 @@
       </div>
 
       <div class="composer-wrap">
+        <div id="demo-next" class="chips" hidden></div>
         <div id="practice-chips" class="chips" hidden>
           <button class="chip" data-send="hint">Hint</button>
           <button class="chip" data-send="pause">Pause</button>

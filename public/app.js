@@ -65,6 +65,11 @@ const MODES = {
   },
 };
 
+// The public demo (/demo) runs this same app on recorded sample data (see the
+// demo section below). It never calls /api and saves nothing, not even in this
+// browser, so a reload starts it fresh.
+const DEMO = /^\/demo(\/|$)/.test(location.pathname);
+
 // ---------- storage ----------
 
 // Each signed-in person gets their own keys, so two people sharing a browser
@@ -75,6 +80,7 @@ const LEGACY = { settings: "humanual.settings.v1", convos: "humanual.convos.v1",
 const keyFor = (name) => (uid ? `humanual.u.${uid}.${name}.v1` : LEGACY[name] ?? `humanual.${name}.v1`);
 
 function load(key, fallback) {
+  if (DEMO) return fallback;
   try {
     const raw = localStorage.getItem(key);
     return raw ? JSON.parse(raw) : fallback;
@@ -83,6 +89,7 @@ function load(key, fallback) {
   }
 }
 function save(key, value) {
+  if (DEMO) return;
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {
@@ -517,7 +524,7 @@ function startApp() {
   $("#app").hidden = false;
   renderConvoList();
   const latest = convos[0];
-  if (latest) openConvo(latest.id);
+  if (latest && !DEMO) openConvo(latest.id);
   else newConvo();
 }
 
@@ -616,8 +623,9 @@ function render() {
   $("#mode-tag").hidden = !c.mode || c.mode === "open";
   $("#mode-tag").textContent = c.mode ? MODES[c.mode].label : "";
   $("#crisis-banner").hidden = !c.crisis;
-  $("#practice-chips").hidden = c.mode !== "practice" || !started;
+  $("#practice-chips").hidden = c.mode !== "practice" || !started || DEMO;
   $("#input").placeholder = MODES[c.mode ?? "open"].placeholder;
+  if (DEMO) renderDemoNext();
 
   $("#start").hidden = started;
   if (!started) renderStart();
@@ -633,9 +641,15 @@ function renderStart() {
   const c = current;
   $("#start-avatar").replaceWith(Object.assign(avatar(c.coach, "xl"), { id: "start-avatar" }));
   $("#start-title").textContent = `Hi ${settings.name}. What are we working on?`;
-  $("#start-sub").textContent = `Pick one, or just start typing. ${COACHES[c.coach].name} will figure it out.`;
+  $("#start-sub").textContent = DEMO
+    ? "Tap a sample below to watch a real reply. Pick a topic to narrow the list."
+    : `Pick one, or just start typing. ${COACHES[c.coach].name} will figure it out.`;
+  $("#demo-samples").hidden = !DEMO;
+  $(".start-settings").hidden = DEMO;
+  if (DEMO) renderDemoSamples();
 
-  const practicing = c.mode === "practice";
+  // The demo has a recorded rehearsal instead of the practice setup.
+  const practicing = c.mode === "practice" && !DEMO;
   $("#practice-setup").hidden = !practicing;
   $("#mode-grid").hidden = practicing;
   if (practicing) renderPracticeSetup();
@@ -840,6 +854,14 @@ async function requestReply() {
 
   const controller = new AbortController();
   setBusy(controller);
+  if (DEMO) {
+    try {
+      await playDemoReply(c, mdNode, controller.signal);
+    } finally {
+      if (busy === controller) setBusy(null);
+    }
+    return;
+  }
   let text = "";
   let frame = 0;
   const paint = () => {
@@ -1225,7 +1247,8 @@ function showScript(entry) {
     el("div", { class: "card-head" }, [
       el("div", {}, [
         el("h3", { text: d.title }),
-        el("div", { class: "by", text: entry.example ? "Example · write your own above" : `${CHANNELS[entry.channel].label} · by ${coachName}` }),
+        el("div", { class: "by", text: entry.example ? "Example · write your own above"
+          : `${CHANNELS[entry.channel].label} · by ${coachName}${DEMO ? " (recorded)" : ""}` }),
       ]),
       el("div", { class: "meters" }, [levelPill("Energy", d.energy), levelPill("Stakes", d.stakes)]),
     ]),
@@ -1251,10 +1274,13 @@ function showScript(entry) {
   const actions = el("div", { class: "card-actions" });
   if (written && d.message) actions.append(el("button", { class: "btn", type: "button", text: "Copy message", onclick: (e) => copyText(e.currentTarget, d.message) }));
   actions.append(el("button", { class: "btn", type: "button", text: "Copy script", onclick: (e) => copyText(e.currentTarget, scriptAsText(entry)) }));
-  if (!written) {
+  // These start a new coach conversation, which the demo has no recording for.
+  if (!written && !DEMO) {
     actions.append(el("button", { class: "btn", type: "button", text: "Practice this", onclick: () => practiceScript(entry) }));
   }
-  actions.append(el("button", { class: "btn", type: "button", text: `Talk it over with ${COACHES[settings.coach].name}`, onclick: () => discussScript(entry) }));
+  if (!DEMO) {
+    actions.append(el("button", { class: "btn", type: "button", text: `Talk it over with ${COACHES[settings.coach].name}`, onclick: () => discussScript(entry) }));
+  }
   if (!entry.example) actions.append(el("button", { class: "btn ghost danger", type: "button", text: "Delete", onclick: () => deleteScript(entry.id) }));
   card.append(actions);
 
@@ -1319,6 +1345,7 @@ $("#script-form").addEventListener("submit", async (e) => {
   const details = $("#script-details").value.trim();
   const status = $("#script-status");
   const btn = $("#script-go");
+  if (DEMO) return demoScript(task, status, btn);
 
   btn.disabled = true;
   status.className = "status";
@@ -1382,8 +1409,145 @@ $("#script-crisis-chat").addEventListener("click", () => {
 });
 
 // Lets phones install Humanual to the home screen and open saved scripts offline.
-if ("serviceWorker" in navigator) {
+if ("serviceWorker" in navigator && !DEMO) {
   navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+
+// ---------- demo ----------
+//
+// /demo plays back real coach replies recorded by tools/record-demo.mjs
+// (public/demo/samples.json). A conversation that stays on a sample's script
+// gets the recorded reply; anything else gets DEMO_OFF_SCRIPT. Changes live
+// only in memory.
+
+let demoData = null;
+
+const DEMO_OFF_SCRIPT =
+  "**This is the demo**, so I can only replay sample conversations. Every reply here was recorded from the real coach, " +
+  "but nothing you type is sent anywhere.\n\n" +
+  "Tap **New conversation** to pick a sample. The live app answers anything you bring to it.";
+
+const CHIP_LABELS = { hint: "Hint", pause: "Pause", stop: "Stop & get feedback" };
+
+async function startDemo() {
+  document.body.classList.add("demo");
+  document.title = "Humanual demo";
+  $("#demo-bar").hidden = false;
+  try {
+    demoData = await (await fetch("/demo/samples.json")).json();
+  } catch {
+    $("#onboarding").hidden = true;
+    document.body.append(el("p", { class: "notice", text: "Couldn't load the demo. Check your connection and reload the page." }));
+    return;
+  }
+  const now = Date.now();
+  settings = { ...demoData.profile, coach: "junie", style: "direct", accessCode: "", updated: now };
+  // One finished rehearsal in the sidebar and two saved scripts, so those screens aren't empty.
+  const rehearsal = demoData.conversations.find((s) => s.mode === "practice");
+  convos = rehearsal ? [demoConvo(rehearsal, rehearsal.messages, now - 3_600_000)] : [];
+  scripts = demoData.scripts
+    .filter((s) => s.task === "Reschedule a doctor's appointment" || s.task === "Ask my landlord to fix something")
+    .map((s, i) => demoScriptEntry(s, now - 86_400_000 * (i + 1)));
+  startApp();
+}
+
+function demoConvo(sample, messages, at = Date.now()) {
+  return {
+    id: crypto.randomUUID(), title: sample.label, coach: sample.coach, style: sample.style, mode: sample.mode,
+    messages: messages.map((m) => ({ ...m })), crisis: false, updated: at, sample: sample.id,
+  };
+}
+
+function demoScriptEntry(rec, at = Date.now()) {
+  return { id: crypto.randomUUID(), channel: rec.channel, task: rec.task, details: "", coach: rec.coach, created: at, updated: at, script: rec.script };
+}
+
+// The conversation's sample, if every message so far matches the recording.
+function demoSampleFor(c) {
+  const s = demoData?.conversations.find((x) => x.id === c.sample);
+  if (!s || c.messages.length > s.messages.length) return null;
+  return c.messages.every((m, i) => s.messages[i].content === m.content) ? s : null;
+}
+
+function renderDemoSamples() {
+  const c = current;
+  const samples = demoData.conversations.filter((s) => !c.mode || (s.mode ?? "open") === c.mode);
+  const list = $("#sample-list");
+  list.replaceChildren();
+  for (const s of samples.length ? samples : demoData.conversations) {
+    list.append(el("button", { type: "button", class: "sample", "data-testid": `demo-sample-${s.id}`, onclick: () => playSample(s) }, [
+      avatar(s.coach),
+      el("span", { class: "sample-text" }, [
+        el("strong", { text: s.label }),
+        el("span", { class: "meta", text: `${COACHES[s.coach].name} · ${s.style === "direct" ? "Direct" : "Gentle"} · ${MODES[s.mode ?? "open"].label}` }),
+      ]),
+    ]));
+  }
+}
+
+function playSample(s) {
+  Object.assign(current, { coach: s.coach, style: s.style, mode: s.mode, sample: s.id, title: s.label });
+  send(s.messages[0].content);
+}
+
+// Offers the sample's next message as a chip, so the visitor can keep going.
+function renderDemoNext() {
+  const box = $("#demo-next");
+  box.replaceChildren();
+  const c = current;
+  const s = demoSampleFor(c);
+  const next = s && c.messages.length % 2 === 0 ? s.messages[c.messages.length]?.content : null;
+  box.hidden = !next;
+  if (!next) return;
+  box.append(el("button", { type: "button", class: "chip next", "data-testid": "demo-next-chip", title: next,
+    "aria-label": `Send: ${next}`, text: `Next → ${CHIP_LABELS[next] ?? next}`, onclick: () => send(next) }));
+}
+
+function demoWait(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => { clearTimeout(t); reject(new DOMException("Stopped", "AbortError")); }, { once: true });
+  });
+}
+
+// Types the recorded reply out at roughly the speed a live reply streams in.
+async function playDemoReply(c, mdNode, signal) {
+  const s = demoSampleFor(c);
+  const full = s?.messages[c.messages.length]?.content ?? DEMO_OFF_SCRIPT;
+  const pieces = full.split(/(?<=\s)/);
+  let text = "";
+  try {
+    await demoWait(600, signal);
+    for (let i = 0; i < pieces.length; i += 4) {
+      text += pieces.slice(i, i + 4).join("");
+      mdNode.innerHTML = renderMarkdown(text);
+      scrollToBottom();
+      await demoWait(30, signal);
+    }
+    finishReply(c, full);
+  } catch {
+    if (text.trim() && current === c) finishReply(c, text + "\n\n_(Stopped.)_");
+    else mdNode.closest("li")?.remove();
+  }
+}
+
+async function demoScript(task, status, btn) {
+  const rec = demoData.scripts.find((s) => s.task.toLowerCase() === task.toLowerCase());
+  status.className = "status";
+  if (!rec) {
+    status.textContent = "The demo has recorded scripts for the example buttons above, so pick one of those. The live app writes a script for anything.";
+    return;
+  }
+  btn.disabled = true;
+  status.textContent = `${COACHES[rec.coach].name} is writing your script…`;
+  await new Promise((r) => setTimeout(r, 1200));
+  const entry = demoScriptEntry(rec);
+  scripts.unshift(entry);
+  status.textContent = "";
+  btn.disabled = false;
+  $("#script-task").value = "";
+  showScript(entry);
+  $("#script-out").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 // ---------- account buttons ----------
@@ -1401,6 +1565,7 @@ $("#manage-account").addEventListener("click", () => clerk?.openUserProfile());
 // ---------- boot ----------
 
 (async function boot() {
+  if (DEMO) return startDemo();
   let config = null;
   try {
     config = await (await fetch("/api/config")).json();

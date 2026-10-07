@@ -12,13 +12,17 @@
     "run_worker_first": ["/api/*"]
   },
   // Profiles, conversations, and saved scripts for signed-in users (see migrations/).
-  // database_id is filled in when the production database is created.
   "d1_databases": [
-    { "binding": "DB", "database_name": "humanual", "database_id": "00000000-0000-0000-0000-000000000000", "migrations_dir": "migrations" }
+    { "binding": "DB", "database_name": "humanual", "database_id": "260d2093-1021-4141-a36c-a09faa2df190", "migrations_dir": "migrations" }
   ],
   // Lets src/prompt.ts import the Markdown prompt files as plain text.
   "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "observability": { "enabled": true },
+  // The portfolio address. The public demo is coach.elitetestautomation.com/demo.
+  "routes": [{ "pattern": "coach.elitetestautomation.com", "custom_domain": true }],
+  // Otherwise `wrangler dev` presents requests as coming from the route's host,
+  // which turns off the localhost-only dev sign-in (src/auth.ts).
+  "dev": { "host": "localhost" },
   "workers_dev": true,
   "preview_urls": false
 }

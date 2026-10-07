@@ -401,3 +401,23 @@ ul.plain { margin: 0; padding-left: 18px; }
 @media (prefers-reduced-motion: reduce) {
   * { animation: none !important; transition: none !important; }
 }
+
+/* Public demo (/demo) */
+.demobar {
+  flex: none; background: var(--accent); color: var(--accent-ink); font-size: 14px; line-height: 1.4;
+  padding: 7px 16px; text-align: center;
+}
+.demobar a { color: inherit; font-weight: 700; white-space: nowrap; }
+body.demo { display: flex; flex-direction: column; height: 100dvh; }
+body.demo .app { height: auto; flex: 1; min-height: 0; }
+.demo-samples { margin-top: 24px; }
+.demo-samples h3 { margin: 0 0 10px; font-size: 18px; }
+.sample-list { display: grid; gap: 8px; }
+.sample {
+  display: flex; gap: 12px; align-items: center; text-align: left; border: 1.5px solid var(--line);
+  background: var(--surface); border-radius: var(--radius); padding: 10px 14px; cursor: pointer;
+}
+.sample:hover { border-color: var(--accent); }
+.sample-text { display: grid; gap: 2px; min-width: 0; }
+.sample-text .meta { font-size: 13px; color: var(--muted); }
+.chip.next { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-color: var(--accent); }

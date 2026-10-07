@@ -18,6 +18,9 @@ This is **Coach mode**: Heather's `social-coach` skill turned into a web app, wi
 | `migrations/` | D1 database schema. |
 | `public/` | The UI (plain HTML/CSS/JS, no build step). |
 | `tests/e2e-sync.mjs` | Browser test: sign-in and sync between two devices. |
+| `tests/e2e-demo.mjs` | Browser test: the public demo never calls the API or saves anything. |
+| `tools/demo-spec.mjs`, `tools/record-demo.mjs` | What the demo shows, and the tool that records the real coach's replies for it. |
+| `public/demo/samples.json` | The recorded demo replies and scripts. |
 
 **Storage.** Each device keeps a full copy in the browser, so the app opens instantly and works offline. With accounts set up, every change is also queued and sent to `/api/sync`, which returns what other devices changed. Per item, the newest edit wins; deletes are kept as markers so other devices remove the item too. Without Clerk keys the app runs as before: no sign-in, data only in the browser.
 
@@ -31,6 +34,12 @@ This is **Coach mode**: Heather's `social-coach` skill turned into a web app, wi
 With `DEV_AUTH=true` and no Clerk keys in `.dev.vars`, you get a test sign-in (any name; each name is a separate account). It only works on localhost.
 
 Run the browser test with the dev server running: `npm run test:e2e`.
+
+## Public demo
+
+`/demo` (live at https://coach.elitetestautomation.com/demo, linked from the elitetestautomation.com portfolio) runs the same app on recorded replies: no sign-in, no API calls, nothing saved, and a reload resets it. Visitors tap sample conversations and example scripts; anything else gets a note that the live app answers it.
+
+After changing the prompts, re-record so the demo matches (costs about 30 API requests): `npm run dev`, then `npm run demo:record`, then `npm run test:demo`.
 
 ## Deploy to Cloudflare
 
