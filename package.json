@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit",
     "test:e2e": "node tests/e2e-sync.mjs",
     "test:demo": "node tests/e2e-demo.mjs",
+    "test:live": "node tests/e2e-live.mjs",
     "demo:record": "node tools/record-demo.mjs"
   },
   "dependencies": {

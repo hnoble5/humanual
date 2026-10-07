@@ -21,6 +21,8 @@ export interface Profile {
   about?: string;
   work?: string;
   people?: string;
+  /** Facts remembered from earlier conversations and journal entries (src/memory.ts). */
+  memory?: string[];
 }
 
 const STYLES: Record<CoachId, Record<Style, string>> = {
@@ -54,7 +56,7 @@ function field(label: string, value: string | undefined) {
 export function buildSystem(opts: {
   coach: CoachId;
   style: Style;
-  mode: ModeId | null;
+  mode: ModeId | "journal" | null;
   profile: Profile;
   today: string;
 }): BetaTextBlockParam[] {
@@ -67,10 +69,17 @@ export function buildSystem(opts: {
     field("About them (what's hard, preferences, context)", profile.about),
     field("Work and/or business", profile.work),
     field("People they deal with", profile.people),
+    "### What you remember from earlier conversations and their journal",
+    profile.memory?.length
+      ? "Use these so they never have to repeat themselves, and follow up on them when it's natural (how did it go?). Don't list them back.\n" +
+        profile.memory.map((m) => `- ${m}`).join("\n")
+      : "(nothing yet)",
     "## Mode for this conversation",
-    mode
-      ? `The user picked ${MODES[mode]} in the app. Start in that mode without asking which mode they want.`
-      : "No mode picked. Follow \"Start of every conversation\".",
+    mode === "journal"
+      ? "The user is writing in the app's Journal. Reply to their entry as the request describes, without asking which mode they want."
+      : mode
+        ? `The user picked ${MODES[mode]} in the app. Start in that mode without asking which mode they want.`
+        : "No mode picked. Follow \"Start of every conversation\".",
   ].join("\n\n");
 
   return [

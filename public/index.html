@@ -8,11 +8,12 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
-  <meta name="theme-color" content="#5f7a5c">
+  <meta name="theme-color" content="#E9EEEC" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121816" media="(prefers-color-scheme: dark)">
   <meta name="apple-mobile-web-app-title" content="Humanual">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Lexend:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -49,7 +50,7 @@
       <p class="lede">Exact words for calls, errands, coworkers, and messages. Practice conversations before they happen. Advice that fits how you communicate. You decide what to use.</p>
 
       <div class="notice">
-        <strong>Your coach is an AI</strong>, not a person, a therapist, or a crisis service. <span id="ob-storage">Your conversations and profile are saved only in this browser.</span>
+        <strong>Your coach is an AI</strong>, not a person, a therapist, or a crisis service. It remembers what you tell it so you don't have to repeat yourself, and you can see or delete what it remembers in Settings. <span id="ob-storage">Your conversations and profile are saved only in this browser.</span>
       </div>
 
       <label class="field">
@@ -82,29 +83,12 @@
 
   <!-- App -->
   <div id="app" class="app" hidden>
-    <aside id="sidebar" class="sidebar" aria-label="Conversations">
-      <div class="sidebar-top">
-        <p class="brand">humanual</p>
-        <button class="icon-btn only-mobile" id="close-sidebar" aria-label="Close menu">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
-        </button>
+    <header class="top">
+      <div class="brand-block">
+        <p class="brand">human<span>ual</span></p>
+        <p class="tagline">The unwritten manual for dealing with people.</p>
       </div>
-      <nav class="views" aria-label="Tools">
-        <button class="view-btn" data-view="chat" aria-current="page">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H8l-4 4z"/></svg>
-          Coach chat
-        </button>
-        <button class="view-btn" data-view="scripts">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v4h4M10 12h6M10 16h6"/></svg>
-          Scripts
-        </button>
-      </nav>
-      <button class="btn primary wide" id="new-chat">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-        New conversation
-      </button>
-      <nav id="convo-list" class="convo-list"></nav>
-      <div class="sidebar-bottom">
+      <div class="top-right">
         <div class="account" id="account" hidden>
           <span class="account-email" id="account-email"></span>
           <span class="sync-status" id="sync-status" aria-live="polite"></span>
@@ -113,85 +97,102 @@
             <button class="linkback" type="button" id="sign-out">Sign out</button>
           </div>
         </div>
-        <button class="btn ghost wide" id="open-settings">
+        <button class="btn" id="open-settings" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>
-          Profile &amp; settings
+          <span class="hide-narrow">Profile &amp; settings</span><span class="show-narrow">Settings</span>
         </button>
-        <a class="help-link" href="tel:988">In crisis? Call or text <strong>988</strong> (US)</a>
       </div>
-    </aside>
-    <div class="scrim" id="scrim" hidden></div>
+    </header>
 
-    <section class="main" id="chat-view">
-      <header class="topbar">
-        <button class="icon-btn only-mobile" id="open-sidebar" aria-label="Open menu">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
-        </button>
-        <div class="topbar-coach" id="topbar-coach"></div>
-        <span class="mode-tag" id="mode-tag" hidden></span>
-      </header>
+    <nav class="tabs" aria-label="Tools">
+      <button class="view-btn" data-view="chat" aria-current="page">Coach chat</button>
+      <button class="view-btn" data-view="scripts">Scripts</button>
+      <button class="view-btn" data-view="journal">Journal</button>
+    </nav>
 
-      <div id="crisis-banner" class="crisis-banner" role="alert" hidden>
-        <strong>If you're in danger or thinking about suicide, please reach out now.</strong>
-        In the US, <a href="tel:988">call</a> or <a href="sms:988">text 988</a> (Suicide &amp; Crisis Lifeline), or call <a href="tel:911">911</a> for an emergency. Outside the US, call your local emergency number.
-      </div>
-
-      <div id="scroller" class="scroller">
-        <!-- Start screen -->
-        <div id="start" class="start" hidden>
-          <div class="start-head">
-            <div class="avatar xl" id="start-avatar"></div>
-            <h2 id="start-title">What are we working on?</h2>
-            <p class="muted" id="start-sub"></p>
-          </div>
-          <div class="mode-grid" id="mode-grid"></div>
-          <div class="demo-samples" id="demo-samples" data-testid="demo-samples" hidden>
-            <h3>Try a sample</h3>
-            <div class="sample-list" id="sample-list"></div>
-          </div>
-          <div class="practice-setup" id="practice-setup" hidden></div>
-          <div class="start-settings">
-            <span class="muted">Coach</span>
-            <div class="segmented small" id="start-coach"></div>
-            <span class="muted">Style</span>
-            <div class="segmented small" id="start-style"></div>
-          </div>
-        </div>
-        <!-- Messages -->
-        <ol id="messages" class="messages" aria-live="polite"></ol>
-      </div>
-
-      <div class="composer-wrap">
-        <div id="demo-next" class="chips" hidden></div>
-        <div id="practice-chips" class="chips" hidden>
-          <button class="chip" data-send="hint">Hint</button>
-          <button class="chip" data-send="pause">Pause</button>
-          <button class="chip" data-send="stop">Stop &amp; get feedback</button>
-        </div>
-        <form id="composer" class="composer">
-          <label for="input" class="sr-only">Message</label>
-          <textarea id="input" rows="1" placeholder="Describe the situation, or paste a message…" maxlength="20000"></textarea>
-          <button class="send-btn" id="send" type="submit" aria-label="Send">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+    <!-- Coach chat -->
+    <section class="main chat-panel" id="chat-view">
+      <aside id="sidebar" class="sidebar" aria-label="Conversations">
+        <div class="sidebar-top">
+          <p class="label">Conversations</p>
+          <button class="icon-btn only-mobile" id="close-sidebar" aria-label="Close list">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
           </button>
-        </form>
-        <p class="fineprint center">AI coach. Not therapy, legal, or medical advice. Drafts only: nothing gets sent for you.</p>
+        </div>
+        <button class="btn primary wide" id="new-chat">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          New conversation
+        </button>
+        <nav id="convo-list" class="convo-list"></nav>
+        <a class="help-link" href="tel:988">In crisis? Call or text <strong>988</strong> (US)</a>
+      </aside>
+      <div class="scrim" id="scrim" hidden></div>
+
+      <div class="chat-card">
+        <header class="topbar">
+          <button class="icon-btn only-mobile" id="open-sidebar" aria-label="Show conversations">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+          </button>
+          <div class="topbar-coach" id="topbar-coach"></div>
+          <span class="mode-tag" id="mode-tag" hidden></span>
+        </header>
+
+        <div id="crisis-banner" class="crisis-banner" role="alert" hidden>
+          <strong>If you're in danger or thinking about suicide, please reach out now.</strong>
+          In the US, <a href="tel:988">call</a> or <a href="sms:988">text 988</a> (Suicide &amp; Crisis Lifeline), or call <a href="tel:911">911</a> for an emergency. Outside the US, call your local emergency number.
+        </div>
+
+        <div id="scroller" class="scroller">
+          <!-- Start screen -->
+          <div id="start" class="start" hidden>
+            <div class="start-head">
+              <div class="avatar xl" id="start-avatar"></div>
+              <h2 id="start-title">What are we working on?</h2>
+              <p class="muted" id="start-sub"></p>
+            </div>
+            <div class="mode-grid" id="mode-grid"></div>
+            <div class="demo-samples" id="demo-samples" data-testid="demo-samples" hidden>
+              <h3>Try a sample</h3>
+              <div class="sample-list" id="sample-list"></div>
+            </div>
+            <div class="practice-setup" id="practice-setup" hidden></div>
+            <div class="start-settings">
+              <span class="label">Coach</span>
+              <div class="segmented small" id="start-coach"></div>
+              <span class="label">Style</span>
+              <div class="segmented small" id="start-style"></div>
+            </div>
+          </div>
+          <!-- Messages -->
+          <ol id="messages" class="messages" aria-live="polite"></ol>
+        </div>
+
+        <div class="composer-wrap">
+          <div id="demo-next" class="chips" hidden></div>
+          <div id="practice-chips" class="chips" hidden>
+            <button class="chip" data-send="hint">Hint</button>
+            <button class="chip" data-send="pause">Pause</button>
+            <button class="chip" data-send="stop">Stop &amp; get feedback</button>
+          </div>
+          <form id="composer" class="composer">
+            <label for="input" class="sr-only">Message</label>
+            <textarea id="input" rows="1" placeholder="Describe the situation, or paste a message…" maxlength="20000"></textarea>
+            <button class="send-btn" id="send" type="submit" aria-label="Send">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+            </button>
+          </form>
+          <p class="fineprint center">AI coach. Not therapy, legal, or medical advice. Drafts only: nothing gets sent for you.</p>
+        </div>
       </div>
     </section>
 
+    <!-- Scripts -->
     <section class="main" id="scripts-view" hidden>
-      <header class="topbar">
-        <button class="icon-btn only-mobile" data-open-sidebar aria-label="Open menu">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
-        </button>
-        <div class="topbar-coach" id="scripts-coach"></div>
-      </header>
-      <div class="scroller">
-        <div class="tool">
-          <div class="tool-intro">
-            <h2>Get a script</h2>
-            <p class="muted">Say where it's happening and what you need to do. You get exact words, what they'll probably say back, and a way out if it goes off-script.</p>
-          </div>
+      <div class="panel">
+        <div class="intro">
+          <h2>Get a script</h2>
+          <p class="muted">Say where it's happening and what you need to do. You get exact words, what they'll probably say back, and a way out if it goes off-script.</p>
+          <p class="byline" id="scripts-coach"></p>
 
           <form id="script-form" class="tool-form">
             <fieldset class="field">
@@ -222,14 +223,54 @@
             <div style="margin-top:10px"><button class="btn" type="button" id="script-crisis-chat">Talk to your coach</button></div>
           </div>
 
-          <div id="script-out"></div>
-
           <div class="saved" id="saved-wrap">
-            <h3>Saved scripts</h3>
+            <h3 class="label">Saved scripts</h3>
             <p class="muted small">Open one any time, even mid-call or offline.</p>
             <div id="saved-list" class="saved-list"></div>
           </div>
         </div>
+        <div id="script-out"></div>
+      </div>
+    </section>
+
+    <!-- Journal -->
+    <section class="main" id="journal-view" hidden>
+      <div class="panel">
+        <div class="intro">
+          <h2>Journal</h2>
+          <p class="muted">Write about your day, a conversation, or something you keep replaying. <span id="journal-coach-name">Your coach</span> writes back with encouragement and, when it helps, one thing to try.</p>
+
+          <form id="journal-form" class="tool-form">
+            <label class="field">
+              <span>What's on your mind?</span>
+              <textarea id="journal-text" rows="7" maxlength="8000" required placeholder="e.g. Finally called the pharmacy today. I rehearsed it twice and still stumbled on my birth date, but I got the refill sorted."></textarea>
+            </label>
+            <div class="chips" id="journal-prompts" aria-label="Ideas"></div>
+            <details class="more">
+              <summary>Something you keep replaying? <span class="muted">(optional)</span></summary>
+              <label class="field">
+                <span class="sr-only">Something you keep replaying</span>
+                <input id="journal-replaying" maxlength="1000" placeholder="e.g. I laughed at the wrong moment">
+              </label>
+            </details>
+            <div class="tool-actions">
+              <button class="btn primary" id="journal-go" type="submit">Save entry</button>
+              <p class="status" id="journal-status" aria-live="polite"></p>
+            </div>
+          </form>
+
+          <div id="journal-crisis" class="crisis-banner" role="alert" hidden>
+            <strong>That sounds like more than a journal reply can help with.</strong>
+            If you're in danger or thinking about suicide, in the US <a href="tel:988">call</a> or <a href="sms:988">text 988</a>, or call <a href="tel:911">911</a>. Outside the US, call your local emergency number.
+            <div style="margin-top:10px"><button class="btn" type="button" id="journal-crisis-chat">Talk to your coach</button></div>
+          </div>
+
+          <div class="saved" id="entries-wrap">
+            <h3 class="label">Past entries</h3>
+            <div id="entry-list" class="saved-list"></div>
+          </div>
+        </div>
+        <div id="journal-out"></div>
       </div>
     </section>
   </div>
@@ -273,6 +314,14 @@
           <label><input type="radio" name="style" value="gentle"><span><strong>Gentle</strong></span></label>
         </div>
       </fieldset>
+
+      <div class="field memory" id="memory-field">
+        <span>What your coach remembers</span>
+        <small>Things you've told your coach in chats and your journal, so you don't have to repeat yourself. Both coaches see this list. Remove anything you'd rather it forgot.</small>
+        <ul class="memory-list" id="memory-list"></ul>
+        <p class="muted small" id="memory-empty">Nothing yet. As you chat and journal, what you share shows up here.</p>
+        <div><button class="btn ghost danger small" type="button" id="memory-clear" hidden>Forget everything</button></div>
+      </div>
 
       <label class="field" id="access-field">
         <span>Access code</span>
