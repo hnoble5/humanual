@@ -607,5 +607,86 @@
         ]
       }
     }
+  ],
+  "journal": [
+    {
+      "label": "Called the pharmacy",
+      "coach": "junie",
+      "style": "gentle",
+      "text": "Finally called the pharmacy about my refill. I'd put it off for a week. I had my script open and it mostly went fine, but I blanked on my date of birth for a second and said \"um, sorry\" about three times.",
+      "replaying": "Saying sorry so many times",
+      "card": {
+        "title": "Finally called the pharmacy",
+        "went_well": [
+          "You made the call after putting it off for a week, and the refill got handled.",
+          "You had your script open, which carried you through most of it.",
+          "When you blanked, you kept going instead of hanging up."
+        ],
+        "encouragement": "Phone calls are your hardest kind of interaction, and you did one anyway. A blank on your birthday doesn't cancel that out.",
+        "advice": "Add your date of birth to the top of your script, since pharmacies almost always ask for it. If your mind blanks on anything, use one stall line instead of apologizing: \"One second, let me check.\"",
+        "reality": "Pharmacy staff hear \"um, sorry\" and blanked birthdays all day. People blank on their own DOB under pressure constantly. They were focused on finding your refill, and they've likely forgotten your call already. That's a blip, not a disaster.",
+        "follow_up": ""
+      }
+    },
+    {
+      "label": "Spoke up in standup",
+      "coach": "otis",
+      "style": "direct",
+      "text": "In standup today I said it before Jordan could: \"I found the export bug and sent the repro steps to Jordan.\" Priya said thanks. My heart was pounding the whole time, but I did it.",
+      "replaying": "",
+      "card": {
+        "title": "Claimed my bug find in standup",
+        "went_well": [
+          "You spoke first and stated your work plainly: \"I found the export bug and sent the repro steps to Jordan.\"",
+          "One sentence, no over-explaining, which is exactly what Priya likes in updates.",
+          "You did it with your heart pounding. That counts double."
+        ],
+        "encouragement": "Root cause found, patch shipped. Jordan's credit-grabbing only works when you stay quiet, and today you didn't. Priya's \"thanks\" means it landed where it should.",
+        "advice": "Make it a habit: next standup, open with the same format, \"I [found/fixed/tested] [thing] and [handed it to whoever].\" Same words every time means less to think about while your heart's racing.",
+        "reality": "",
+        "follow_up": ""
+      }
+    },
+    {
+      "label": "Skipped the team lunch",
+      "coach": "junie",
+      "style": "gentle",
+      "text": "Skipped the team lunch today. I told them I had a deadline, which was half true. Really I was wiped out from the office day. Now I feel like I'm missing my chance to get to know people.",
+      "replaying": "",
+      "card": {
+        "title": "Skipped team lunch, felt wiped",
+        "went_well": [
+          "You noticed you were out of energy and acted on it instead of pushing through and paying for it later.",
+          "You declined with one short reason and didn't over-explain, which you've said is hard for you when you're nervous."
+        ],
+        "encouragement": "Protecting your energy after an office day is planning, not avoiding. You don't owe anyone a performance at every lunch.",
+        "advice": "Get to know people in smaller pieces that cost less energy. On your next office day, try one short 1:1 with someone, like: \"Want to grab a coffee at 3? Just 10 minutes.\" Or on Slack: \"Sorry I missed lunch. How was it?\"",
+        "reality": "Skipping one team lunch is a blip. People skip these all the time for deadlines, and most of your team has probably already forgotten. Getting to know people comes from lots of small moments over months, not one lunch.",
+        "follow_up": ""
+      }
+    }
+  ],
+  "memory": [
+    "Name is Alex",
+    "Needs to call the dentist to reschedule a cleaning; has put it off for about two weeks as of Oct 7, 2026",
+    "Freezes when trying to make phone calls",
+    "Works with a coworker named Jordan; team has daily standups",
+    "Found the login bug, wrote repro steps, and sent them to Jordan on Oct 6, 2026; in standup on Oct 7, 2026, Jordan said he \"tracked down\" the bug and Alex didn't say anything",
+    "Win (Oct 7, 2026): in standup, spoke up before Jordan and said \"I found the export bug and sent the repro steps to Jordan\"; Priya said thanks; heart was pounding but did it",
+    "Has Priya at work (likely manager); was considering raising the Jordan credit issue with her",
+    "On Oct 7, 2026, a developer dismissed Alex's bug report on Slack as \"working as designed\" and told Alex to read the ticket; Alex had read it and says the design doc says the opposite",
+    "Wants to handle work conflicts without escalating; prefers short replies",
+    "Going to a local software testing meetup on Thursday, Oct 8, 2026; hopes to meet one or two people who might need QA consulting",
+    "Hates walking up to strangers",
+    "Worries about going blank when asked what they do",
+    "Works as a QA engineer and is looking for QA consulting clients",
+    "On Oct 7, 2026, practiced a phone role-play canceling a membership against upsells; declined giving a reason clearly but didn't give name/number when asked and stopped at the upsell offer",
+    "Around Oct 7, 2026, told a friend they can't make her birthday dinner; she replied \"k\" and Alex worried she was mad",
+    "Win (around Oct 7, 2026): called the pharmacy about a refill after putting it off a week; used a script and it mostly went fine",
+    "Having a script open helps with phone calls",
+    "On the pharmacy call, briefly blanked on date of birth and said \"um, sorry\" about three times; keeps replaying saying sorry so many times",
+    "On Oct 7, 2026, skipped the team lunch, saying they had a deadline (half true); really was wiped out from the office day",
+    "Office days leave Alex drained",
+    "Worries that skipping team lunches means missing chances to get to know coworkers"
   ]
 }

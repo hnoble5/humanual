@@ -4,6 +4,8 @@ import type { BetaMessageParam } from "@anthropic-ai/sdk/resources/beta/messages
 import { CRISIS_SYSTEM_NOTE, crisisCheck } from "./crisis";
 import { buildSystem, COACHES, MODES, turnReminder, type CoachId, type ModeId, type Profile, type Style } from "./prompt";
 import { CHANNELS, ScriptSchema, scriptRequest, type ChannelId } from "./script";
+import { JournalSchema, journalRequest } from "./journal";
+import { MAX_MEMORIES, MAX_MEMORY_CHARS, MEMORY_SYSTEM, MemorySchema, memoryRequest } from "./memory";
 import { authMode, getUserId } from "./auth";
 import { deleteAll, sync, SyncError } from "./storage";
 
@@ -30,6 +32,12 @@ function str(v: unknown, max: number, name: string): string {
   return v;
 }
 
+function parseMemory(v: unknown): string[] {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v) || v.length > MAX_MEMORIES * 2) throw new BadRequest("Invalid memory");
+  return v.map((m) => str(m, MAX_MEMORY_CHARS * 2, "Memory").trim()).filter(Boolean);
+}
+
 // Fields shared by every endpoint: who's coaching, how, and who they're coaching.
 function parseCommon(body: any) {
   if (!body || typeof body !== "object") throw new BadRequest("Invalid request");
@@ -41,6 +49,7 @@ function parseCommon(body: any) {
     about: str(p.about, MAX_PROFILE_CHARS, "About you"),
     work: str(p.work, MAX_PROFILE_CHARS, "Work"),
     people: str(p.people, MAX_PROFILE_CHARS, "People"),
+    memory: parseMemory(p.memory),
   };
   return {
     coach: body.coach as CoachId,
@@ -250,6 +259,85 @@ async function handleScript(request: Request, env: Env): Promise<Response> {
   }
 }
 
+async function handleJournal(request: Request, env: Env): Promise<Response> {
+  const auth = await guardModel(request, env);
+  if (auth instanceof Response) return auth;
+
+  let req;
+  try {
+    const body: any = await request.json();
+    const common = parseCommon(body);
+    const text = str(body.text, 8_000, "Journal entry").trim();
+    if (!text) throw new BadRequest("Write something first");
+    req = { ...common, text, replaying: str(body.replaying, 1_000, "What you keep replaying").trim() };
+  } catch (err) {
+    return json({ error: err instanceof BadRequest ? err.message : "Invalid request" }, 400);
+  }
+
+  // A journal card is the wrong reply to a crisis: send them to help and to the coach chat.
+  if (crisisCheck(`${req.text}\n${req.replaying}`)) return json({ crisis: true });
+
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  try {
+    const response = await client.beta.messages.parse({
+      model: MODEL,
+      max_tokens: 16000,
+      output_config: { effort: "medium", format: betaZodOutputFormat(JournalSchema) },
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      system: buildSystem({ ...req, mode: "journal" }),
+      messages: [{ role: "user", content: journalRequest(req.text, req.replaying) }],
+    });
+    if (response.stop_reason === "refusal") {
+      return json({ error: "The coach couldn't reply to that one. Try rewording it." }, 422);
+    }
+    if (!response.parsed_output) return json({ error: "The reply came back incomplete. Try again." }, 502);
+    return json({ card: response.parsed_output });
+  } catch (err) {
+    console.error("journal failed", err);
+    return json({ error: friendlyError(err) }, 502);
+  }
+}
+
+// Updates the list of things the coach remembers after a chat reply or journal entry.
+async function handleRemember(request: Request, env: Env): Promise<Response> {
+  const auth = await guardModel(request, env);
+  if (auth instanceof Response) return auth;
+
+  let memories: string[], exchange: string, today: string;
+  try {
+    const body: any = await request.json();
+    memories = parseMemory(body?.memory);
+    exchange = str(body?.exchange, 30_000, "Exchange").trim();
+    if (!exchange) throw new BadRequest("Nothing to remember");
+    today = str(body?.today, 60, "Date") || new Date().toDateString();
+  } catch (err) {
+    return json({ error: err instanceof BadRequest ? err.message : "Invalid request" }, 400);
+  }
+
+  const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+  try {
+    const response = await client.beta.messages.parse({
+      model: MODEL,
+      max_tokens: 16000,
+      output_config: { effort: "low", format: betaZodOutputFormat(MemorySchema) },
+      betas: ["server-side-fallback-2026-07-01"],
+      fallbacks: "default",
+      system: MEMORY_SYSTEM,
+      messages: [{ role: "user", content: memoryRequest(memories, exchange, today) }],
+    });
+    if (response.stop_reason === "refusal" || !response.parsed_output) return json({ memory: memories });
+    const updated = response.parsed_output.memories
+      .map((m) => m.trim().slice(0, MAX_MEMORY_CHARS))
+      .filter(Boolean)
+      .slice(0, MAX_MEMORIES);
+    return json({ memory: updated });
+  } catch (err) {
+    console.error("remember failed", err);
+    return json({ error: friendlyError(err) }, 502);
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -260,6 +348,14 @@ export default {
     if (url.pathname === "/api/script") {
       if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
       return handleScript(request, env);
+    }
+    if (url.pathname === "/api/remember") {
+      if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+      return handleRemember(request, env);
+    }
+    if (url.pathname === "/api/journal") {
+      if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+      return handleJournal(request, env);
     }
     if (url.pathname === "/api/sync") {
       if (request.method !== "POST" && request.method !== "DELETE") return json({ error: "Method not allowed" }, 405);

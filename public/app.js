@@ -58,7 +58,7 @@ const MODES = {
     placeholder: "Who should the coach play, and what's the situation?",
   },
   open: {
-    label: "Just talk it through",
+    label: "Open chat",
     desc: "Not sure what you need yet? Start here.",
     icon: "chat",
     placeholder: "What's going on?",
@@ -100,6 +100,7 @@ function save(key, value) {
 let settings = null;
 let convos = [];
 let scripts = [];
+let journal = [];   // journal entries, newest first
 let current = null; // the open conversation (may be an unsaved draft)
 let busy = null;    // AbortController while a reply is streaming
 let accessCodeRequired = false;
@@ -107,11 +108,14 @@ let accessCodeRequired = false;
 const saveSettings = () => save(keyFor("settings"), settings);
 const saveConvos = () => save(keyFor("convos"), convos);
 const saveScripts = () => save(keyFor("scripts"), scripts);
+const saveJournal = () => save(keyFor("journal"), journal);
+const USER_KEYS = ["settings", "convos", "scripts", "journal", "outbox", "cursor"];
 
 function loadUserData() {
   settings = load(keyFor("settings"), null);
   convos = load(keyFor("convos"), []);
   scripts = load(keyFor("scripts"), []);
+  journal = load(keyFor("journal"), []);
 }
 
 // ---------- account & sync ----------
@@ -143,8 +147,14 @@ async function authHeaders() {
 }
 
 function itemTime(kind, item) {
-  return kind === "script" ? item.updated ?? item.created ?? 0 : item.updated ?? 0;
+  return kind === "script" || kind === "journal" ? item.updated ?? item.created ?? 0 : item.updated ?? 0;
 }
+
+const LISTS = {
+  convo: () => convos,
+  script: () => scripts,
+  journal: () => journal,
+};
 
 // The profile syncs without the access code, which is a per-device beta gate.
 function profileData() {
@@ -170,8 +180,7 @@ function pendingChanges() {
       continue;
     }
     const data = kind === "profile" ? (settings ? profileData() : null)
-      : kind === "convo" ? convos.find((c) => c.id === id)
-      : scripts.find((x) => x.id === id);
+      : LISTS[kind]?.().find((x) => x.id === id);
     if (data) changes.push({ kind, id, data, deleted: false, updated_at: entry.updated_at });
     else delete outbox[key]; // nothing left to send
   }
@@ -224,7 +233,7 @@ async function syncNow() {
 // Merges items from other devices into the local copy.
 function applyRemote(items) {
   if (!items?.length) return;
-  let changedConvos = false, changedScripts = false, changedProfile = false;
+  let changedConvos = false, changedScripts = false, changedJournal = false, changedProfile = false;
   for (const item of items) {
     const key = `${item.kind}:${item.id}`;
     // A local edit not yet sent that's newer than this one wins.
@@ -249,16 +258,18 @@ function applyRemote(items) {
         if (current?.id === item.id) current = item.data;
         changedConvos = true;
       }
-    } else if (item.kind === "script") {
-      const i = scripts.findIndex((x) => x.id === item.id);
-      const local = scripts[i];
-      if (local && itemTime("script", local) > item.updated_at) continue;
+    } else if (item.kind === "script" || item.kind === "journal") {
+      const list = LISTS[item.kind]();
+      const i = list.findIndex((x) => x.id === item.id);
+      const local = list[i];
+      if (local && itemTime(item.kind, local) > item.updated_at) continue;
       if (item.deleted) {
-        if (i >= 0) { scripts.splice(i, 1); changedScripts = true; }
+        if (i < 0) continue;
+        list.splice(i, 1);
       } else {
-        if (i >= 0) scripts[i] = item.data; else scripts.push(item.data);
-        changedScripts = true;
+        if (i >= 0) list[i] = item.data; else list.push(item.data);
       }
+      if (item.kind === "script") changedScripts = true; else changedJournal = true;
     }
   }
 
@@ -271,7 +282,12 @@ function applyRemote(items) {
     scripts.sort((a, b) => (b.created ?? 0) - (a.created ?? 0));
     saveScripts();
   }
+  if (changedJournal) {
+    journal.sort((a, b) => (b.created ?? 0) - (a.created ?? 0));
+    saveJournal();
+  }
   if ($("#app").hidden) return;
+  if (changedJournal && view === "journal") renderJournalView();
   if (changedConvos || changedProfile) {
     // The open conversation was deleted on another device: move on.
     if (current && current.messages.length && !convos.some((c) => c.id === current.id)) {
@@ -332,7 +348,7 @@ async function enterAs(userId, { prefillName = "" } = {}) {
 
   if (settings?.name) {
     startApp();
-    if (location.hash === "#scripts") showView("scripts");
+    if (location.hash === "#scripts" || location.hash === "#journal") showView(location.hash.slice(1));
   } else {
     showOnboarding(prefillName);
   }
@@ -357,7 +373,7 @@ async function signOut() {
   }
   // Clear this person's copy from the device (shared computers).
   try {
-    for (const name of ["settings", "convos", "scripts", "outbox", "cursor"]) localStorage.removeItem(keyFor(name));
+    for (const name of USER_KEYS) localStorage.removeItem(keyFor(name));
     localStorage.removeItem("humanual.lastUser");
     if (authMode === "dev") localStorage.removeItem("humanual.devUser");
   } catch {}
@@ -634,7 +650,8 @@ function render() {
   list.replaceChildren();
   for (const m of c.messages) list.append(messageEl(m));
   renderConvoList();
-  scrollToBottom(true);
+  if (started) scrollToBottom(true);
+  else $("#scroller").scrollTop = 0;
 }
 
 function renderStart() {
@@ -657,6 +674,7 @@ function renderStart() {
   const grid = $("#mode-grid");
   grid.replaceChildren();
   for (const [id, m] of Object.entries(MODES)) {
+    if (id === "open") continue; // free-form talk is the default; the Journal tab covers reflecting
     const card = el("button", { class: "mode-card", type: "button", "aria-pressed": String(c.mode === id),
       onclick: () => {
         current.mode = id;
@@ -888,7 +906,7 @@ async function requestReply() {
         coach: c.coach,
         style: c.style,
         mode: c.mode && c.mode !== "open" ? c.mode : null,
-        profile: { name: settings.name, about: settings.about, work: settings.work, people: settings.people },
+        profile: profilePayload(),
         today: new Date().toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" }),
         messages: c.messages,
       }),
@@ -961,7 +979,93 @@ function finishReply(c, text) {
     markDirty("convo", c.id, { at: c.updated });
     renderConvoList();
   }
+  const said = c.messages[c.messages.length - 2]?.content ?? "";
+  const where = c.mode === "practice"
+    ? "a role-play rehearsal (the user's lines may be spoken in character, not facts about them)"
+    : `a coach chat (${MODES[c.mode ?? "open"].label})`;
+  rememberFrom(`From ${where}.\n\nThe user wrote:\n${said}\n\nThe coach replied:\n${text}`);
 }
+
+// ---------- memory ----------
+//
+// The coach remembers what the user tells it: after each chat reply or journal
+// entry, /api/remember returns the updated list of facts. The list lives in
+// the profile (so it syncs), is sent with every request, and the user can
+// delete any of it in Settings.
+
+const forgotten = new Set(); // deleted this session: an update already in flight mustn't bring them back
+let memoryEpoch = 0;
+let rememberQueue = Promise.resolve();
+
+const todayLabel = () => new Date().toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+const memoryTexts = () => (settings?.memory ?? []).map((m) => m.text);
+
+function profilePayload() {
+  return { name: settings.name, about: settings.about, work: settings.work, people: settings.people, memory: memoryTexts() };
+}
+
+function setMemory(items) {
+  settings = { ...settings, memory: items, updated: Date.now() };
+  saveSettings();
+  markDirty("profile", "me", { at: settings.updated });
+  if ($("#settings").open) renderMemory();
+}
+
+// Updates run one at a time so two quick replies can't overwrite each other.
+function rememberFrom(exchange) {
+  if (DEMO || !settings) return;
+  rememberQueue = rememberQueue.then(() => updateMemory(exchange)).catch(() => {});
+}
+
+async function updateMemory(exchange) {
+  const epoch = memoryEpoch;
+  const res = await fetch("/api/remember", {
+    method: "POST",
+    headers: await authHeaders(),
+    body: JSON.stringify({ memory: memoryTexts(), exchange, today: todayLabel() }),
+  });
+  if (!res.ok) return;
+  const data = await res.json();
+  if (!Array.isArray(data.memory) || epoch !== memoryEpoch) return;
+  const old = new Map((settings.memory ?? []).map((m) => [m.text, m]));
+  const now = Date.now();
+  const next = data.memory
+    .filter((t) => typeof t === "string" && !forgotten.has(t))
+    .map((t) => old.get(t) ?? { id: crypto.randomUUID(), text: t, at: now });
+  if (next.length === old.size && next.every((m) => old.has(m.text))) return;
+  setMemory(next);
+}
+
+function renderMemory() {
+  const items = settings.memory ?? [];
+  const list = $("#memory-list");
+  list.replaceChildren();
+  for (const m of items) {
+    list.append(el("li", {}, [
+      el("span", { text: m.text }),
+      el("button", { class: "icon-btn", type: "button", "aria-label": `Forget: ${m.text}`, title: "Forget this",
+        html: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+        onclick: () => forgetMemory(m.id) }),
+    ]));
+  }
+  $("#memory-empty").hidden = items.length > 0;
+  $("#memory-clear").hidden = !items.length;
+}
+
+function forgetMemory(id) {
+  const m = settings.memory?.find((x) => x.id === id);
+  if (!m) return;
+  forgotten.add(m.text);
+  memoryEpoch++;
+  setMemory(settings.memory.filter((x) => x.id !== id));
+}
+
+$("#memory-clear").addEventListener("click", () => {
+  if (!confirm("Forget everything your coach remembers about you? This can't be undone.")) return;
+  for (const t of memoryTexts()) forgotten.add(t);
+  memoryEpoch++;
+  setMemory([]);
+});
 
 // ---------- composer ----------
 
@@ -1013,6 +1117,7 @@ function openSettings({ focusAccess = false } = {}) {
   const access = $("#access-field");
   access.hidden = !accessCodeRequired && !settings.accessCode;
   access.classList.toggle("flash", focusAccess);
+  renderMemory();
   $("#settings").returnValue = "";
   closeSidebar();
   $("#settings").showModal();
@@ -1057,12 +1162,12 @@ $("#wipe").addEventListener("click", async () => {
     }
   }
   try {
-    for (const name of ["settings", "convos", "scripts", "outbox", "cursor"]) localStorage.removeItem(keyFor(name));
+    for (const name of USER_KEYS) localStorage.removeItem(keyFor(name));
   } catch {}
   location.reload();
 });
 
-// ---------- views (coach chat / scripts) ----------
+// ---------- views (coach chat / scripts / journal) ----------
 
 let view = "chat";
 
@@ -1070,12 +1175,14 @@ function showView(name) {
   view = name;
   $("#chat-view").hidden = name !== "chat";
   $("#scripts-view").hidden = name !== "scripts";
+  $("#journal-view").hidden = name !== "journal";
   for (const b of document.querySelectorAll(".view-btn")) {
     if (b.dataset.view === name) b.setAttribute("aria-current", "page");
     else b.removeAttribute("aria-current");
   }
   try { history.replaceState(null, "", name === "chat" ? location.pathname : "#" + name); } catch {}
   if (name === "scripts") renderScriptsView();
+  if (name === "journal") renderJournalView();
   closeSidebar();
 }
 
@@ -1185,7 +1292,7 @@ function renderScriptsView() {
   const coach = COACHES[settings.coach];
   $("#scripts-coach").replaceChildren(
     avatar(settings.coach, "sm"),
-    el("span", {}, [document.createTextNode("Scripts "), el("span", { class: "sub", text: `· by ${coach.name}, ${settings.style === "direct" ? "Direct" : "Gentle"}` })]),
+    el("span", { text: `Written by ${coach.name} · ${settings.style === "direct" ? "Direct" : "Gentle"}` }),
   );
 
   const pick = $("#channel-pick");
@@ -1361,7 +1468,7 @@ $("#script-form").addEventListener("submit", async (e) => {
       body: JSON.stringify({
         coach: settings.coach,
         style: settings.style,
-        profile: { name: settings.name, about: settings.about, work: settings.work, people: settings.people },
+        profile: profilePayload(),
         today: new Date().toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" }),
         channel,
         task,
@@ -1391,6 +1498,7 @@ $("#script-form").addEventListener("submit", async (e) => {
     scripts.unshift(entry);
     saveScripts();
     markDirty("script", entry.id, { at: now });
+    rememberFrom(`From the Scripts tool. The user asked for a script (${CHANNELS[channel].label}): ${task}${details ? `\nDetails they gave: ${details}` : ""}`);
     status.textContent = "";
     $("#script-task").value = "";
     $("#script-details").value = "";
@@ -1406,6 +1514,219 @@ $("#script-form").addEventListener("submit", async (e) => {
 
 $("#script-crisis-chat").addEventListener("click", () => {
   startConvoWith(null, $("#script-crisis").dataset.task || "", { sendNow: true });
+});
+
+// ---------- journal ----------
+//
+// Each entry is saved first (it's the user's writing), then the coach's reply
+// card is requested. If that fails, the entry stays and can ask again.
+
+let shownEntryId = null;
+const entryState = new Map(); // id -> { pending, error }: this device only, never saved
+
+const JOURNAL_PROMPTS = [
+  ["A conversation today", "A conversation I had today: "],
+  ["Something I keep replaying", "Something I keep replaying: "],
+  ["A small win", "A small win today: "],
+  ["Something coming up", "Something coming up that I'm thinking about: "],
+];
+
+const EXAMPLE_ENTRY = {
+  id: "example",
+  example: true,
+  coach: "junie",
+  text: "Went to my cousin's birthday dinner. I stayed two hours, which is longer than last time. I left during cake because it got really loud, and I just said bye to my cousin without explaining.",
+  replaying: "Leaving before cake",
+  created: 0,
+  card: {
+    title: "Birthday dinner, two hours",
+    went_well: ["You stayed two hours, longer than last time.", "You left when it got too loud instead of pushing through."],
+    encouragement: "Two hours at a loud family dinner is real effort, and you chose your exit well.",
+    advice: "Next time, tell your cousin when you arrive: \"I can stay till about eight.\" Then leaving early needs no explaining.",
+    reality: "At a birthday, people leave at different times all evening. Your cousin most likely remembers that you came, not when you left.",
+    follow_up: "",
+  },
+};
+
+function entryDate(ts) {
+  return new Date(ts).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+}
+
+function entryTitle(entry) {
+  return entry.card?.title || entry.text.replace(/\s+/g, " ").trim().slice(0, 50) || "Journal entry";
+}
+
+function renderJournalView() {
+  $("#journal-coach-name").textContent = COACHES[settings.coach].name;
+  $("#journal-go").textContent = `Save & get ${COACHES[settings.coach].name}'s reply`;
+  const box = $("#journal-prompts");
+  if (!box.children.length) {
+    const prompts = DEMO && demoData ? demoData.journal.map((j) => [j.label, j.text]) : JOURNAL_PROMPTS;
+    for (const [label, text] of prompts) {
+      box.append(el("button", { type: "button", class: "chip", text: label, onclick: () => {
+        const t = $("#journal-text");
+        t.value = text;
+        t.focus();
+        t.setSelectionRange(text.length, text.length);
+      } }));
+    }
+  }
+  renderEntryList();
+  const shown = journal.find((e) => e.id === shownEntryId);
+  showEntry(shown ?? journal[0] ?? EXAMPLE_ENTRY);
+}
+
+function renderEntryList() {
+  const list = $("#entry-list");
+  list.replaceChildren();
+  $("#entries-wrap").hidden = !journal.length;
+  for (const e of journal) {
+    list.append(el("div", { class: "saved-item", "aria-current": String(e.id === shownEntryId) }, [
+      el("button", { class: "open", type: "button", onclick: () => { showEntry(e); $("#journal-out").scrollIntoView({ behavior: "smooth", block: "start" }); } }, [
+        el("span", { class: "title", text: entryTitle(e) }),
+        el("span", { class: "meta", text: `${entryDate(e.created)}${e.card ? "" : " · no reply yet"}` }),
+      ]),
+    ]));
+  }
+}
+
+function showEntry(entry) {
+  shownEntryId = entry.id;
+  const d = entry.card;
+  const state = entryState.get(entry.id) ?? {};
+  const coachName = COACHES[entry.coach]?.name ?? "Your coach";
+  const row = (k, ...content) => el("div", { class: "row" }, [el("div", { class: "k", text: k }), el("div", {}, content)]);
+
+  const byline = entry.example ? "Example · write your own on the left"
+    : `${entryDate(entry.created)} · ${d ? `reply from ${coachName}${DEMO ? " (recorded)" : ""}` : state.pending ? `${coachName} is writing back…` : "no reply yet"}`;
+  const card = el("article", { class: "card", "aria-label": entryTitle(entry) }, [
+    el("div", { class: "card-head" }, [
+      el("div", {}, [el("h3", { text: entryTitle(entry) }), el("div", { class: "by", text: byline })]),
+      el("div", { class: "meters" }, [el("span", { class: "tag", text: "Journal" })]),
+    ]),
+  ]);
+
+  if (d?.encouragement) card.append(el("div", { class: "norm" }, [el("strong", { text: `${coachName}: ` }), document.createTextNode(d.encouragement)]));
+  card.append(row("You wrote", el("p", { class: "entry-text", text: entry.text })));
+  if (entry.replaying) card.append(row("Replaying", el("p", { text: entry.replaying })));
+  if (d) {
+    if (d.went_well?.length) card.append(row("Went well", el("ul", { class: "plain" }, d.went_well.map((t) => el("li", { text: t })))));
+    if (d.advice) card.append(row("Try next", el("p", { text: d.advice })));
+    if (d.reality) card.append(row("Reality check", el("p", { text: d.reality })));
+    if (d.follow_up) card.append(row("Follow-up", el("p", { text: d.follow_up })));
+  } else if (!state.pending && !entry.example) {
+    card.append(row("Reply", el("p", { class: "muted", text: state.error || "No reply yet." }),
+      el("button", { class: "btn small", type: "button", text: "Get a reply", style: "margin-top:8px", onclick: () => requestCard(entry) })));
+  }
+
+  const actions = el("div", { class: "card-actions" });
+  if (!DEMO) {
+    actions.append(el("button", { class: "btn", type: "button", text: `Talk it over with ${COACHES[settings.coach].name}`, onclick: () => discussEntry(entry) }));
+  }
+  if (!entry.example) actions.append(el("button", { class: "btn ghost danger", type: "button", text: "Delete", onclick: () => deleteEntry(entry.id) }));
+  if (actions.children.length) card.append(actions);
+
+  $("#journal-out").replaceChildren(card);
+  renderEntryList();
+}
+
+function entryAsText(entry) {
+  const d = entry.card;
+  const lines = [entry.text];
+  if (entry.replaying) lines.push("", `What I keep replaying: ${entry.replaying}`);
+  if (d) {
+    lines.push("", `${COACHES[entry.coach]?.name ?? "Coach"}'s reply:`);
+    if (d.encouragement) lines.push(d.encouragement);
+    if (d.advice) lines.push(`Try next: ${d.advice}`);
+    if (d.reality) lines.push(`Reality check: ${d.reality}`);
+    if (d.follow_up) lines.push(`Follow-up: ${d.follow_up}`);
+  }
+  return lines.join("\n");
+}
+
+function discussEntry(entry) {
+  startConvoWith(null, `From my journal (${entryDate(entry.created)}):\n\n${entryAsText(entry)}\n\nWhat I'd like to talk about: `, { sendNow: false });
+}
+
+function deleteEntry(id) {
+  const e = journal.find((x) => x.id === id);
+  if (!e || !confirm(`Delete "${entryTitle(e)}"? This can't be undone.`)) return;
+  journal = journal.filter((x) => x.id !== id);
+  saveJournal();
+  markDirty("journal", id, { deleted: true });
+  shownEntryId = null;
+  showEntry(journal[0] ?? EXAMPLE_ENTRY);
+}
+
+function persistEntry(entry) {
+  entry.updated = Date.now();
+  const i = journal.findIndex((x) => x.id === entry.id);
+  if (i >= 0) journal[i] = entry; else journal.unshift(entry);
+  saveJournal();
+  markDirty("journal", entry.id, { at: entry.updated });
+}
+
+async function requestCard(entry) {
+  entryState.set(entry.id, { pending: true });
+  if (shownEntryId === entry.id) showEntry(entry);
+  let error = "";
+  try {
+    let res;
+    try {
+      res = await fetch("/api/journal", {
+        method: "POST",
+        headers: await authHeaders(),
+        body: JSON.stringify({
+          coach: entry.coach, style: settings.style, profile: profilePayload(), today: todayLabel(),
+          text: entry.text, replaying: entry.replaying,
+        }),
+      });
+    } catch {
+      throw new Error("Couldn't reach Humanual. Your entry is saved; try again when you're online.");
+    }
+    const data = await res.json().catch(() => ({}));
+    if (data.code === "access") {
+      openSettings({ focusAccess: true });
+      throw new Error(data.error);
+    }
+    if (data.crisis) {
+      $("#journal-crisis").hidden = false;
+      $("#journal-crisis").dataset.text = entry.text;
+      throw new Error("Your entry is saved. No reply was written; please look at the message above.");
+    }
+    if (!res.ok || !data.card) throw new Error(data.error || `Something went wrong (${res.status}).`);
+    entry.card = data.card;
+    persistEntry(entry);
+  } catch (err) {
+    error = err.message;
+  } finally {
+    entryState.set(entry.id, { pending: false, error });
+    if (shownEntryId === entry.id) showEntry(entry);
+    else renderEntryList();
+  }
+}
+
+$("#journal-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const text = $("#journal-text").value.trim();
+  if (!text) return $("#journal-text").focus();
+  const replaying = $("#journal-replaying").value.trim();
+  $("#journal-crisis").hidden = true;
+  if (DEMO) return demoJournal(text);
+
+  const now = Date.now();
+  const entry = { id: crypto.randomUUID(), text, replaying, coach: settings.coach, created: now, updated: now, card: null };
+  persistEntry(entry);
+  $("#journal-text").value = "";
+  $("#journal-replaying").value = "";
+  showEntry(entry);
+  $("#journal-out").scrollIntoView({ behavior: "smooth", block: "start" });
+  rememberFrom(`From the user's journal:\n${text}${replaying ? `\n\nSomething they keep replaying: ${replaying}` : ""}`);
+  await requestCard(entry);
+});
+
+$("#journal-crisis-chat").addEventListener("click", () => {
+  startConvoWith(null, $("#journal-crisis").dataset.text || "", { sendNow: true });
 });
 
 // Lets phones install Humanual to the home screen and open saved scripts offline.
@@ -1441,8 +1762,13 @@ async function startDemo() {
     return;
   }
   const now = Date.now();
-  settings = { ...demoData.profile, coach: "junie", style: "direct", accessCode: "", updated: now };
-  // One finished rehearsal in the sidebar and two saved scripts, so those screens aren't empty.
+  settings = {
+    ...demoData.profile, coach: "junie", style: "direct", accessCode: "", updated: now,
+    memory: (demoData.memory ?? []).map((text) => ({ id: crypto.randomUUID(), text, at: now })),
+  };
+  // One past journal entry, one finished rehearsal in the sidebar, and two
+  // saved scripts, so those screens aren't empty.
+  journal = (demoData.journal ?? []).slice(-1).map((j) => demoJournalEntry(j, now - 2 * 86_400_000));
   const rehearsal = demoData.conversations.find((s) => s.mode === "practice");
   convos = rehearsal ? [demoConvo(rehearsal, rehearsal.messages, now - 3_600_000)] : [];
   scripts = demoData.scripts
@@ -1529,6 +1855,32 @@ async function playDemoReply(c, mdNode, signal) {
     if (text.trim() && current === c) finishReply(c, text + "\n\n_(Stopped.)_");
     else mdNode.closest("li")?.remove();
   }
+}
+
+function demoJournalEntry(rec, at = Date.now()) {
+  return { id: crypto.randomUUID(), text: rec.text, replaying: rec.replaying ?? "", coach: rec.coach, created: at, updated: at, card: rec.card };
+}
+
+async function demoJournal(text) {
+  const rec = demoData.journal.find((j) => j.text.trim() === text);
+  const status = $("#journal-status");
+  status.className = "status";
+  if (!rec) {
+    status.textContent = "The demo has recorded replies for the idea buttons above, so pick one of those. The live app replies to anything you write.";
+    return;
+  }
+  const entry = { ...demoJournalEntry(rec), card: null };
+  journal.unshift(entry);
+  $("#journal-text").value = "";
+  $("#journal-replaying").value = "";
+  status.textContent = "";
+  entryState.set(entry.id, { pending: true });
+  showEntry(entry);
+  $("#journal-out").scrollIntoView({ behavior: "smooth", block: "start" });
+  await new Promise((r) => setTimeout(r, 1200));
+  entry.card = rec.card;
+  entryState.set(entry.id, { pending: false });
+  if (shownEntryId === entry.id) showEntry(entry); else renderEntryList();
 }
 
 async function demoScript(task, status, btn) {

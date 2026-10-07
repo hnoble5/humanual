@@ -46,6 +46,9 @@ try {
   const sampleCount = await page.$$eval("#sample-list .sample", (n) => n.length);
   ok("start screen lists every sample", sampleCount === data.conversations.length, `${sampleCount}`);
   ok("sidebar has the recorded rehearsal", (await page.$$eval("#convo-list .convo-item", (n) => n.length)) === 1);
+  ok("start screen opens at the top", (await page.$eval("#scroller", (s) => s.scrollTop)) === 0);
+  ok("no Just talk it through card", !(await page.isVisible(".mode-card:has-text('Just talk it through')")));
+  ok("three tabs", (await page.$$eval(".view-btn", (n) => n.map((b) => b.textContent.trim()).join(","))) === "Coach chat,Scripts,Journal");
 
   // Play a sample through both turns.
   const dentist = sample("dentist");
@@ -85,6 +88,29 @@ try {
   await page.fill("#script-task", "Ask my boss for Friday off");
   await page.click("#script-go");
   ok("custom script task explains the demo", (await page.textContent("#script-status")).includes("example buttons"));
+
+  // Journal: a past entry is shown; idea buttons give recorded replies; anything else explains.
+  await page.click(".view-btn[data-view=journal]");
+  ok("journal shows one past entry", (await page.$$eval("#entry-list .saved-item", (n) => n.length)) === 1);
+  const pharmacy = data.journal.find((j) => j.label === "Called the pharmacy");
+  await page.click(`#journal-prompts .chip:has-text("${pharmacy.label}")`);
+  await page.click("#journal-go");
+  await page.waitForFunction((t) => document.querySelector("#journal-out h3")?.textContent === t, pharmacy.card.title, { timeout: 5000 });
+  ok("journal idea gives the recorded reply", (await page.textContent("#journal-out .norm")).includes(pharmacy.card.encouragement));
+  ok("journal reply is marked recorded", (await page.textContent("#journal-out .by")).includes("recorded"));
+  ok("two entries after saving one", (await page.$$eval("#entry-list .saved-item", (n) => n.length)) === 2);
+  ok("demo hides Talk it over on journal", !(await page.isVisible("#journal-out button:has-text('Talk it over')")));
+  await page.fill("#journal-text", "Today was fine.");
+  await page.click("#journal-go");
+  ok("custom journal entry explains the demo", (await page.textContent("#journal-status")).includes("idea buttons"));
+
+  // Memory: the recorded list shows in settings and items can be removed.
+  await page.click("#open-settings");
+  const remembered = await page.$$eval("#memory-list li", (n) => n.length);
+  ok("settings lists what the coach remembers", remembered === data.memory.length && remembered > 0, `${remembered}`);
+  await page.click("#memory-list li:first-child button");
+  ok("forgetting removes one item", (await page.$$eval("#memory-list li", (n) => n.length)) === remembered - 1);
+  await page.click("#settings .sheet-head button");
 
   // Nothing persisted.
   const stored = await page.evaluate(() => ({ keys: Object.keys(localStorage), sw: navigator.serviceWorker?.controller ?? null }));

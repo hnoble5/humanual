@@ -1,11 +1,11 @@
-// Sync for a user's profile, conversations, and saved scripts.
+// Sync for a user's profile, conversations, saved scripts, and journal entries.
 //
 // Each device keeps a full copy in the browser and calls POST /api/sync with
 // the edits it has made and the cursor from its last sync. The server applies
 // the edits (newest edit wins, per item) and returns everything stored since
 // that cursor, so every device converges on the same data.
 
-const KINDS = new Set(["profile", "convo", "script"]);
+const KINDS = new Set(["profile", "convo", "script", "journal"]);
 const MAX_CHANGES = 200;
 const MAX_ITEM_CHARS = 1_000_000; // D1 rows top out around 2 MB
 const MAX_RETURNED = 500;

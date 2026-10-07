@@ -73,13 +73,11 @@ try {
   ok("phone skips welcome (profile came from account)", await phone.page.isHidden("#onboarding"));
   const phoneList = await phone.page.textContent("#convo-list");
   ok("phone sees the seeded conversation", phoneList.includes("Seeded chat about the dentist"));
-  await phone.page.locator("button[aria-label=\"Open menu\"]:visible").click();
   await phone.page.click('.view-btn[data-view="scripts"]');
   await phone.page.waitForSelector("#saved-list .saved-item");
   ok("phone sees the seeded script", (await phone.page.textContent("#saved-list")).includes("Seeded dentist script"));
 
   // 4. Phone edits profile -> laptop picks it up on next sync.
-  await phone.page.locator("button[aria-label=\"Open menu\"]:visible").click();
   await phone.page.click("#open-settings");
   await phone.page.fill('#settings-form textarea[name="about"]', "Phone calls are the hardest for me.");
   await phone.page.click('#settings-form button[value="save"]');
@@ -134,7 +132,6 @@ try {
   ok("old unscoped copy removed after moving", legacyLeft === null);
 
   // 7. Sign out clears this user's data from the device.
-  await phone.page.locator("button[aria-label=\"Open menu\"]:visible").click();
   await phone.page.click("#sign-out");
   await phone.page.waitForSelector("#signin:not([hidden])");
   const leftovers = await phone.page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith("humanual.u.")));

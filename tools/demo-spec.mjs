@@ -83,6 +83,32 @@ export const SAMPLES = [
   },
 ];
 
+// Journal entries. In the demo their labels are the idea buttons under the
+// journal box; the last one also appears as a past entry.
+export const JOURNAL = [
+  {
+    label: "Called the pharmacy",
+    coach: "junie",
+    style: "gentle",
+    text: "Finally called the pharmacy about my refill. I'd put it off for a week. I had my script open and it mostly went fine, but I blanked on my date of birth for a second and said \"um, sorry\" about three times.",
+    replaying: "Saying sorry so many times",
+  },
+  {
+    label: "Spoke up in standup",
+    coach: "otis",
+    style: "direct",
+    text: "In standup today I said it before Jordan could: \"I found the export bug and sent the repro steps to Jordan.\" Priya said thanks. My heart was pounding the whole time, but I did it.",
+    replaying: "",
+  },
+  {
+    label: "Skipped the team lunch",
+    coach: "junie",
+    style: "gentle",
+    text: "Skipped the team lunch today. I told them I had a deadline, which was half true. Really I was wiped out from the office day. Now I feel like I'm missing my chance to get to know people.",
+    replaying: "",
+  },
+];
+
 // Script cards for the example chips in the Scripts tool (public/app.js CHANNELS.examples).
 export const SCRIPTS = [
   { channel: "inperson", coach: "junie", task: "Return shoes without a receipt" },
