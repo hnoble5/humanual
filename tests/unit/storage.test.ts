@@ -90,3 +90,35 @@ test("a garbled cursor starts over instead of failing", async () => {
     assert.equal(items.length, 1, JSON.stringify(since));
   }
 });
+
+test("an edit time far in the future is pulled back to the server's time", async () => {
+  const db = createTestDb();
+  const before = Date.now();
+  await sync(db, "u1", { changes: [convo("c1", before + 10 * 365 * 24 * 3600 * 1000)] });
+  const stored = (await sync(db, "u1", { since: 0 })).items[0].updated_at;
+  assert.ok(stored <= Date.now() + 60_000, `stored ${stored}`);
+  // So a later real edit from another device still wins.
+  await sync(db, "u1", { changes: [{ ...convo("c1", Date.now() + 120_000), data: { id: "c1", title: "later" } }] });
+  assert.equal((await sync(db, "u1", { since: 0 })).items[0].data.title, "later");
+});
+
+test("a full account refuses new data but still accepts deletes and shrinking edits", async () => {
+  const db = createTestDb();
+  const big = "x".repeat(900_000);
+  // Fill to just under the cap directly, as 55 items of ~900 KB.
+  const values = Array.from({ length: 55 }, (_, i) =>
+    `('u1', 'convo', 'big${i}', '${JSON.stringify({ t: big })}', 1, 1, 0)`);
+  await db.exec(`INSERT INTO items (user_id, kind, id, data, updated_at, server_at, deleted) VALUES ${values.join(",")}`);
+
+  await assert.rejects(
+    sync(db, "u1", { changes: [{ kind: "convo", id: "new", updated_at: 2, data: { t: big } }] }),
+    /account is full/
+  );
+  // Shrinking an item and deleting one both go through.
+  await sync(db, "u1", { changes: [{ kind: "convo", id: "big0", updated_at: 2, data: { t: "small" } }] });
+  await sync(db, "u1", { changes: [{ kind: "convo", id: "big1", updated_at: 2, data: null, deleted: true }] });
+  const { items } = await sync(db, "u1", { since: 0 });
+  assert.equal(items.find((i) => i.id === "big0")?.data.t, "small");
+  assert.equal(items.find((i) => i.id === "big1")?.deleted, true);
+  assert.equal(items.some((i) => i.id === "new"), false);
+});

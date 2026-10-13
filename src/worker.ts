@@ -7,9 +7,12 @@ import { CHANNELS, ScriptSchema, scriptRequest, type ChannelId } from "./script"
 import { JournalSchema, journalRequest } from "./journal";
 import { MAX_MEMORIES, MAX_MEMORY_CHARS, MEMORY_SYSTEM, MemorySchema, memoryRequest } from "./memory";
 import { authMode, getUserId } from "./auth";
-import { deleteAll, sync, SyncError } from "./storage";
+import { deleteAll, StorageFullError, sync, SyncError } from "./storage";
 
 const MODEL = "claude-opus-5-5";
+// Memory updates run after every reply and are a simple extraction job, so they
+// use a cheaper model instead of doubling the Opus calls.
+const MEMORY_MODEL = "claude-sonnet-5-5";
 const MAX_MESSAGES = 120;
 const MAX_MESSAGE_CHARS = 20_000;
 const MAX_PROFILE_CHARS = 4_000;
@@ -24,6 +27,9 @@ interface ChatRequest {
 }
 
 class BadRequest extends Error {}
+
+// Own keys only: `"constructor" in COACHES` is true, and would crash later.
+const isKey = (obj: object, key: unknown): boolean => typeof key === "string" && Object.hasOwn(obj, key);
 
 function str(v: unknown, max: number, name: string): string {
   if (v === undefined || v === null) return "";
@@ -41,7 +47,7 @@ function parseMemory(v: unknown): string[] {
 // Fields shared by every endpoint: who's coaching, how, and who they're coaching.
 function parseCommon(body: any) {
   if (!body || typeof body !== "object") throw new BadRequest("Invalid request");
-  if (!(body.coach in COACHES)) throw new BadRequest("Unknown coach");
+  if (!isKey(COACHES, body.coach)) throw new BadRequest("Unknown coach");
   if (body.style !== "direct" && body.style !== "gentle") throw new BadRequest("Unknown style");
   const p = body.profile ?? {};
   const profile: Profile = {
@@ -61,7 +67,7 @@ function parseCommon(body: any) {
 
 function parseRequest(body: any): ChatRequest {
   const common = parseCommon(body);
-  if (body.mode !== null && !(body.mode in MODES)) throw new BadRequest("Unknown mode");
+  if (body.mode !== null && !isKey(MODES, body.mode)) throw new BadRequest("Unknown mode");
 
   const msgs = body.messages;
   if (!Array.isArray(msgs) || msgs.length === 0) throw new BadRequest("No messages");
@@ -115,7 +121,23 @@ async function guard(request: Request, env: Env): Promise<{ userId: string | nul
 
 async function guardModel(request: Request, env: Env) {
   if (!env.ANTHROPIC_API_KEY) return json({ error: "The server's API key isn't set up yet." }, 500);
+  if (openToEveryone(request, env)) {
+    console.error("refusing AI request: no ACCESS_CODE and no sign-in on a public address");
+    return json({ error: "The coach isn't available on this address yet." }, 503);
+  }
   return guard(request, env);
+}
+
+/**
+ * True when anyone on the internet could spend the API credit: no access code
+ * and no sign-in. That's only allowed on localhost, for development. In
+ * production it means a secret is missing, so AI requests are refused rather
+ * than left open.
+ */
+function openToEveryone(request: Request, env: Env) {
+  if (env.ACCESS_CODE || authMode(request, env) !== "none") return false;
+  const host = new URL(request.url).hostname;
+  return host !== "localhost" && host !== "127.0.0.1";
 }
 
 async function handleSync(request: Request, env: Env): Promise<Response> {
@@ -131,6 +153,7 @@ async function handleSync(request: Request, env: Env): Promise<Response> {
   try {
     return json(await sync(env.DB, userId, await request.json()));
   } catch (err) {
+    if (err instanceof StorageFullError) return json({ error: err.message, code: "full" }, 413);
     if (err instanceof SyncError) return json({ error: err.message }, 400);
     if (err instanceof SyntaxError) return json({ error: "Invalid request" }, 400);
     console.error("sync failed", err);
@@ -226,7 +249,7 @@ async function handleScript(request: Request, env: Env): Promise<Response> {
   try {
     const body: any = await request.json();
     const common = parseCommon(body);
-    if (!(body.channel in CHANNELS)) throw new BadRequest("Pick where this happens");
+    if (!isKey(CHANNELS, body.channel)) throw new BadRequest("Pick where this happens");
     const task = str(body.task, 2_000, "What you need to do").trim();
     if (!task) throw new BadRequest("Describe what you need to do");
     req = { ...common, channel: body.channel as ChannelId, task, details: str(body.details, 4_000, "Details").trim() };
@@ -326,7 +349,7 @@ async function handleRemember(request: Request, env: Env): Promise<Response> {
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   try {
     const response = await client.beta.messages.parse({
-      model: MODEL,
+      model: MEMORY_MODEL,
       max_tokens: 16000,
       output_config: { effort: "low", format: betaZodOutputFormat(MemorySchema) },
       betas: ["server-side-fallback-2026-07-01"],
@@ -348,36 +371,46 @@ async function handleRemember(request: Request, env: Env): Promise<Response> {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const url = new URL(request.url);
-    if (url.pathname === "/api/chat") {
-      if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
-      return handleChat(request, env);
+    try {
+      return await route(request, env);
+    } catch (err) {
+      // Anything unexpected still gets a JSON reply the app can show.
+      console.error("unhandled error", err);
+      return json({ error: "Something went wrong. Try again." }, 500);
     }
-    if (url.pathname === "/api/script") {
-      if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
-      return handleScript(request, env);
-    }
-    if (url.pathname === "/api/remember") {
-      if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
-      return handleRemember(request, env);
-    }
-    if (url.pathname === "/api/journal") {
-      if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
-      return handleJournal(request, env);
-    }
-    if (url.pathname === "/api/sync") {
-      if (request.method !== "POST" && request.method !== "DELETE") return json({ error: "Method not allowed" }, 405);
-      return handleSync(request, env);
-    }
-    if (url.pathname === "/api/config") {
-      const auth = authMode(request, env);
-      return json({
-        accessCodeRequired: Boolean(env.ACCESS_CODE),
-        auth,
-        clerkPublishableKey: auth === "clerk" ? env.CLERK_PUBLISHABLE_KEY : undefined,
-      });
-    }
-    if (url.pathname.startsWith("/api/")) return json({ error: "Not found" }, 404);
-    return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;
+
+async function route(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  if (url.pathname === "/api/chat") {
+    if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+    return handleChat(request, env);
+  }
+  if (url.pathname === "/api/script") {
+    if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+    return handleScript(request, env);
+  }
+  if (url.pathname === "/api/remember") {
+    if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+    return handleRemember(request, env);
+  }
+  if (url.pathname === "/api/journal") {
+    if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+    return handleJournal(request, env);
+  }
+  if (url.pathname === "/api/sync") {
+    if (request.method !== "POST" && request.method !== "DELETE") return json({ error: "Method not allowed" }, 405);
+    return handleSync(request, env);
+  }
+  if (url.pathname === "/api/config") {
+    const auth = authMode(request, env);
+    return json({
+      accessCodeRequired: Boolean(env.ACCESS_CODE),
+      auth,
+      clerkPublishableKey: auth === "clerk" ? env.CLERK_PUBLISHABLE_KEY : undefined,
+    });
+  }
+  if (url.pathname.startsWith("/api/")) return json({ error: "Not found" }, 404);
+  return env.ASSETS.fetch(request);
+}

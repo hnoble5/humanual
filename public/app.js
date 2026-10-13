@@ -212,6 +212,12 @@ async function syncNow() {
           setSyncStatus(data.code === "access" ? "Not synced: enter the access code" : "Not synced: sign in again");
           return;
         }
+        if (res.status === 413) {
+          // Account full: keep the changes queued on this device and say why.
+          const data = await res.json().catch(() => ({}));
+          setSyncStatus(data.error || "Not synced: your account is full.");
+          return;
+        }
         if (!res.ok) throw new Error(`sync ${res.status}`);
         const data = await res.json();
         // Clear what we sent, unless it was edited again while in flight.
