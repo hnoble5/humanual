@@ -9,10 +9,11 @@ import { MAX_MEMORIES, MAX_MEMORY_CHARS, MEMORY_SYSTEM, MemorySchema, memoryRequ
 import { authMode, getUserId } from "./auth";
 import { deleteAll, StorageFullError, sync, SyncError } from "./storage";
 
+// Model rule: anything that works with the user's personal details (their
+// profile, situations, people, memory) uses Opus, for quality. Only work that
+// never sees personal details may use Sonnet. Today every AI call is personal:
+// chat, scripts, journal, and memory updates.
 const MODEL = "claude-opus-5-5";
-// Memory updates run after every reply and are a simple extraction job, so they
-// use a cheaper model instead of doubling the Opus calls.
-const MEMORY_MODEL = "claude-sonnet-5-5";
 const MAX_MESSAGES = 120;
 const MAX_MESSAGE_CHARS = 20_000;
 const MAX_PROFILE_CHARS = 4_000;
@@ -349,7 +350,7 @@ async function handleRemember(request: Request, env: Env): Promise<Response> {
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   try {
     const response = await client.beta.messages.parse({
-      model: MEMORY_MODEL,
+      model: MODEL,
       max_tokens: 16000,
       output_config: { effort: "low", format: betaZodOutputFormat(MemorySchema) },
       betas: ["server-side-fallback-2026-07-01"],
