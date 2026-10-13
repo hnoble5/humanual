@@ -10,6 +10,7 @@ const MAX_CHANGES = 200;
 const MAX_ITEM_CHARS = 1_000_000; // D1 rows top out around 2 MB
 const MAX_RETURNED = 500;
 const ID_RE = /^[\w-]{1,64}$/;
+const CURSOR_LOOKBACK_MS = 2_000;
 
 export class SyncError extends Error {}
 
@@ -47,7 +48,7 @@ function parseChanges(raw: unknown): Change[] {
 
 export async function sync(db: D1Database, userId: string, body: any) {
   const changes = parseChanges(body?.changes);
-  const since = Number.isFinite(body?.since) && body.since > 0 ? Math.floor(body.since) : 0;
+  const since = parseCursor(body?.since);
   const now = Date.now();
 
   if (changes.length) {
@@ -70,13 +71,16 @@ export async function sync(db: D1Database, userId: string, body: any) {
     await db.batch(batch);
   }
 
+  // Rows come back in (server_at, kind, id) order. A full page ends with a
+  // cursor naming its last row, so the next page starts right after it, even
+  // when many rows share one server_at (a delete-all writes hundreds at once).
   const { results } = await db
     .prepare(
       `SELECT kind, id, data, updated_at, server_at, deleted FROM items
-       WHERE user_id = ?1 AND server_at > ?2
-       ORDER BY server_at ASC LIMIT ?3`,
+       WHERE user_id = ?1 AND (server_at > ?2 OR (server_at = ?2 AND (kind, id) > (?3, ?4)))
+       ORDER BY server_at ASC, kind ASC, id ASC LIMIT ?5`,
     )
-    .bind(userId, since, MAX_RETURNED)
+    .bind(userId, since.at, since.kind, since.id, MAX_RETURNED)
     .all<Row>();
 
   const items = results.map((r) => ({
@@ -87,13 +91,49 @@ export async function sync(db: D1Database, userId: string, body: any) {
     deleted: r.deleted === 1,
   }));
   const more = results.length === MAX_RETURNED;
-  // Rows from one batch share a server_at. When the page is full, back the
-  // cursor up by 1 ms so a batch split across pages is re-sent rather than
-  // skipped (re-applying an item is harmless: newest edit still wins).
-  const cursor = more ? results[results.length - 1].server_at - 1 : Math.max(since, now);
+  const last = results[results.length - 1];
+  // Between pages: resume right after the last row sent. At the end: look back
+  // a couple of seconds rather than stopping at "now", so a write stamped in
+  // the same moment by another request (or still committing) isn't skipped.
+  // Re-sending an item is harmless: the newest edit still wins.
+  const cursor: string | number = more
+    ? `${last.server_at}|${last.kind}|${last.id}`
+    : Math.max(since.at, now - CURSOR_LOOKBACK_MS);
   return { items, cursor, more };
 }
 
-export async function deleteAll(db: D1Database, userId: string) {
-  await db.prepare("DELETE FROM items WHERE user_id = ?1").bind(userId).run();
+// The browser treats the cursor as opaque: it's a number (a time, meaning
+// "everything after this"), or "time|kind|id" partway through a page run.
+// Anything else starts from the beginning, which is always safe to re-apply.
+function parseCursor(raw: unknown): { at: number; kind: string; id: string } {
+  if (typeof raw === "number" && Number.isFinite(raw) && raw > 0) return { at: Math.floor(raw), kind: "\uffff", id: "" };
+  if (typeof raw === "string") {
+    const m = /^(\d{1,16})\|([a-z]{1,16})\|([\w-]{1,64})$/.exec(raw);
+    if (m && KINDS.has(m[2])) return { at: Number(m[1]), kind: m[2], id: m[3] };
+  }
+  return { at: 0, kind: "\uffff", id: "" };
+}
+
+/**
+ * Deletes everything a user keeps. Rows become deletion markers (data gone,
+ * deleted = 1) rather than vanishing, so the user's other devices learn about
+ * it on their next sync and clear their copies. A profile marker is always
+ * written: that's the signal for a device to wipe itself.
+ */
+export async function deleteAll(db: D1Database, userId: string, now = Date.now()) {
+  await db.batch([
+    db
+      .prepare(
+        `UPDATE items SET data = NULL, deleted = 1, updated_at = MAX(updated_at, ?2), server_at = ?2
+         WHERE user_id = ?1`,
+      )
+      .bind(userId, now),
+    db
+      .prepare(
+        `INSERT INTO items (user_id, kind, id, data, updated_at, server_at, deleted)
+         VALUES (?1, 'profile', 'me', NULL, ?2, ?2, 1)
+         ON CONFLICT (user_id, kind, id) DO NOTHING`,
+      )
+      .bind(userId, now),
+  ]);
 }

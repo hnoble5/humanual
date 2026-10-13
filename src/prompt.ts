@@ -71,7 +71,7 @@ export function buildSystem(opts: {
     field("People they deal with", profile.people),
     "### What you remember from earlier conversations and their journal",
     profile.memory?.length
-      ? "Use these so they never have to repeat themselves, and follow up on them when it's natural (how did it go?). Don't list them back.\n" +
+      ? "Use these so they never have to repeat themselves, and follow up on them when it's natural (how did it go?). Don't list them back. Never raise anything sensitive on your own (health, a crisis, a loss, money trouble); wait for them to bring it up.\n" +
         profile.memory.map((m) => `- ${m}`).join("\n")
       : "(nothing yet)",
     "## Mode for this conversation",

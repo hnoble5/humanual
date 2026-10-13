@@ -1,6 +1,7 @@
 // Humanual coach UI. Plain JS, no build step.
 // Everything the user writes is stored in this browser (localStorage) and sent
-// to /api/chat with each message. The server keeps nothing.
+// to the API with each request. With accounts on, it's also synced through
+// /api/sync so it's on every device; without accounts the server keeps nothing.
 
 const COACHES = {
   junie: {
@@ -76,7 +77,12 @@ const DEMO = /^\/demo(\/|$)/.test(location.pathname);
 // never see each other's data. Without accounts (uid null) the original keys
 // are used, which is also where data saved before accounts existed lives.
 let uid = null;
-const LEGACY = { settings: "humanual.settings.v1", convos: "humanual.convos.v1", scripts: "humanual.scripts.v1" };
+const LEGACY = {
+  settings: "humanual.settings.v1",
+  convos: "humanual.convos.v1",
+  scripts: "humanual.scripts.v1",
+  journal: "humanual.journal.v1",
+};
 const keyFor = (name) => (uid ? `humanual.u.${uid}.${name}.v1` : LEGACY[name] ?? `humanual.${name}.v1`);
 
 function load(key, fallback) {
@@ -230,17 +236,31 @@ async function syncNow() {
   return syncing;
 }
 
+// Removes this person's data from this browser (sign-out, delete everything).
+function clearDeviceCopy() {
+  try {
+    for (const name of USER_KEYS) localStorage.removeItem(keyFor(name));
+  } catch {}
+}
+
 // Merges items from other devices into the local copy.
 function applyRemote(items) {
   if (!items?.length) return;
   let changedConvos = false, changedScripts = false, changedJournal = false, changedProfile = false;
+  let wiped = false;
   for (const item of items) {
     const key = `${item.kind}:${item.id}`;
     // A local edit not yet sent that's newer than this one wins.
     if (outbox[key] && outbox[key].updated_at > item.updated_at) continue;
 
     if (item.kind === "profile") {
-      if (item.deleted || !item.data) continue;
+      // "Delete everything" on another device: the account's profile was
+      // deleted after this device's last profile edit, so clear this copy too.
+      if (item.deleted) {
+        if (settings && (settings.updated ?? 0) <= item.updated_at) wiped = true;
+        continue;
+      }
+      if (!item.data) continue;
       if (!settings || (settings.updated ?? 0) < item.updated_at) {
         settings = { ...item.data, accessCode: settings?.accessCode || "" };
         changedProfile = true;
@@ -271,6 +291,12 @@ function applyRemote(items) {
       }
       if (item.kind === "script") changedScripts = true; else changedJournal = true;
     }
+  }
+
+  if (wiped) {
+    clearDeviceCopy();
+    location.reload();
+    return;
   }
 
   if (changedProfile) saveSettings();
@@ -310,18 +336,22 @@ function adoptLegacyData() {
   const legacySettings = load(LEGACY.settings, null);
   const legacyConvos = load(LEGACY.convos, []);
   const legacyScripts = load(LEGACY.scripts, []);
-  if (!legacySettings && !legacyConvos.length && !legacyScripts.length) return;
+  const legacyJournal = load(LEGACY.journal, []);
+  if (!legacySettings && !legacyConvos.length && !legacyScripts.length && !legacyJournal.length) return;
 
   if (legacySettings && !settings) settings = { ...legacySettings, updated: legacySettings.updated ?? 1 };
   for (const c of legacyConvos) if (!convos.some((x) => x.id === c.id)) convos.push(c);
   for (const x of legacyScripts) if (!scripts.some((y) => y.id === x.id)) scripts.push(x);
+  for (const x of legacyJournal) if (!journal.some((y) => y.id === x.id)) journal.push(x);
   convos.sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0));
   scripts.sort((a, b) => (b.created ?? 0) - (a.created ?? 0));
-  saveSettings(); saveConvos(); saveScripts();
+  journal.sort((a, b) => (b.created ?? 0) - (a.created ?? 0));
+  saveSettings(); saveConvos(); saveScripts(); saveJournal();
 
   if (settings) markDirty("profile", "me", { at: settings.updated ?? Date.now() });
   for (const c of legacyConvos) markDirty("convo", c.id, { at: itemTime("convo", c) || Date.now() });
   for (const x of legacyScripts) markDirty("script", x.id, { at: itemTime("script", x) || Date.now() });
+  for (const x of legacyJournal) markDirty("journal", x.id, { at: itemTime("journal", x) || Date.now() });
   try {
     for (const k of Object.values(LEGACY)) localStorage.removeItem(k);
   } catch {}
@@ -372,8 +402,8 @@ async function signOut() {
         !confirm("Some changes haven't synced yet and will be lost from this device if you sign out now. Sign out anyway?")) return;
   }
   // Clear this person's copy from the device (shared computers).
+  clearDeviceCopy();
   try {
-    for (const name of USER_KEYS) localStorage.removeItem(keyFor(name));
     localStorage.removeItem("humanual.lastUser");
     if (authMode === "dev") localStorage.removeItem("humanual.devUser");
   } catch {}
@@ -881,6 +911,7 @@ async function requestReply() {
     return;
   }
   let text = "";
+  let crisisTurn = false; // this message matched crisis language: keep it out of memory
   let frame = 0;
   const paint = () => {
     frame = 0;
@@ -936,6 +967,7 @@ async function requestReply() {
           text += ev.v;
           if (!frame) frame = requestAnimationFrame(paint);
         } else if (ev.t === "crisis") {
+          crisisTurn = true;
           c.crisis = true;
           $("#crisis-banner").hidden = false;
         } else {
@@ -951,12 +983,12 @@ async function requestReply() {
     }
     if (!text.trim()) return fail("The coach didn't reply. Try again.");
     if (!outcome) text += "\n\n_(Reply was cut off.)_";
-    finishReply(c, text);
+    finishReply(c, text, { remember: !crisisTurn });
   } catch (err) {
     if (frame) cancelAnimationFrame(frame);
     if (err.name === "AbortError") {
       // User pressed stop. Keep what arrived so the conversation stays valid.
-      if (text.trim() && current === c) finishReply(c, text + "\n\n_(Stopped.)_");
+      if (text.trim() && current === c) finishReply(c, text + "\n\n_(Stopped.)_", { remember: !crisisTurn });
       else li.remove();
       return;
     }
@@ -966,7 +998,7 @@ async function requestReply() {
   }
 }
 
-function finishReply(c, text) {
+function finishReply(c, text, { remember = true } = {}) {
   c.messages.push({ role: "assistant", content: text });
   if (current === c) {
     persistCurrent();
@@ -979,6 +1011,9 @@ function finishReply(c, text) {
     markDirty("convo", c.id, { at: c.updated });
     renderConvoList();
   }
+  // A crisis turn is never added to memory: the coach shouldn't bring it back
+  // up later on its own.
+  if (!remember) return;
   const said = c.messages[c.messages.length - 2]?.content ?? "";
   const where = c.mode === "practice"
     ? "a role-play rehearsal (the user's lines may be spoken in character, not facts about them)"
@@ -1151,7 +1186,7 @@ $("#settings").addEventListener("close", () => {
 });
 $("#wipe").addEventListener("click", async () => {
   const where = syncEnabled() ? "from your account and every device" : "from this browser";
-  if (!confirm(`Delete your profile, conversations, and saved scripts ${where}? This can't be undone.`)) return;
+  if (!confirm(`Delete your profile, memory, conversations, saved scripts, and journal ${where}? This can't be undone.`)) return;
   if (syncEnabled()) {
     try {
       const res = await fetch("/api/sync", { method: "DELETE", headers: await authHeaders() });
@@ -1161,9 +1196,7 @@ $("#wipe").addEventListener("click", async () => {
       return;
     }
   }
-  try {
-    for (const name of USER_KEYS) localStorage.removeItem(keyFor(name));
-  } catch {}
+  clearDeviceCopy();
   location.reload();
 });
 
@@ -1666,10 +1699,12 @@ function persistEntry(entry) {
   markDirty("journal", entry.id, { at: entry.updated });
 }
 
+// Returns "ok", "crisis", or "error".
 async function requestCard(entry) {
   entryState.set(entry.id, { pending: true });
   if (shownEntryId === entry.id) showEntry(entry);
   let error = "";
+  let outcome = "error";
   try {
     let res;
     try {
@@ -1690,6 +1725,7 @@ async function requestCard(entry) {
       throw new Error(data.error);
     }
     if (data.crisis) {
+      outcome = "crisis";
       $("#journal-crisis").hidden = false;
       $("#journal-crisis").dataset.text = entry.text;
       throw new Error("Your entry is saved. No reply was written; please look at the message above.");
@@ -1697,6 +1733,7 @@ async function requestCard(entry) {
     if (!res.ok || !data.card) throw new Error(data.error || `Something went wrong (${res.status}).`);
     entry.card = data.card;
     persistEntry(entry);
+    outcome = "ok";
   } catch (err) {
     error = err.message;
   } finally {
@@ -1704,6 +1741,7 @@ async function requestCard(entry) {
     if (shownEntryId === entry.id) showEntry(entry);
     else renderEntryList();
   }
+  return outcome;
 }
 
 $("#journal-form").addEventListener("submit", async (e) => {
@@ -1721,8 +1759,11 @@ $("#journal-form").addEventListener("submit", async (e) => {
   $("#journal-replaying").value = "";
   showEntry(entry);
   $("#journal-out").scrollIntoView({ behavior: "smooth", block: "start" });
-  rememberFrom(`From the user's journal:\n${text}${replaying ? `\n\nSomething they keep replaying: ${replaying}` : ""}`);
-  await requestCard(entry);
+  const outcome = await requestCard(entry);
+  // Crisis entries stay out of memory (see finishReply).
+  if (outcome !== "crisis") {
+    rememberFrom(`From the user's journal:\n${text}${replaying ? `\n\nSomething they keep replaying: ${replaying}` : ""}`);
+  }
 });
 
 $("#journal-crisis-chat").addEventListener("click", () => {

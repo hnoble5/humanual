@@ -6,6 +6,7 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
+    "test:unit": "node --experimental-strip-types --test \"tests/unit/*.test.ts\"",
     "test:e2e": "node tests/e2e-sync.mjs",
     "test:demo": "node tests/e2e-demo.mjs",
     "test:live": "node tests/e2e-live.mjs",
