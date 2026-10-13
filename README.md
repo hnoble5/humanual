@@ -16,10 +16,11 @@ This is **Coach mode**: Heather's `social-coach` skill turned into a web app, wi
 | `src/journal.ts` | Journal: the reply card's fields (`/api/journal` returns encouragement, what went well, one thing to try, a reality check). |
 | `src/memory.ts` | Memory: after each chat reply, journal entry, or script, `/api/remember` updates the list of facts the coach keeps about the user. |
 | `src/auth.ts` | Sign-in check: verifies the Clerk session token on each request (or the localhost-only dev sign-in). |
-| `src/storage.ts` | Sync: `/api/sync` stores each user's profile, conversations, and scripts in D1. |
+| `src/storage.ts` | Sync: `/api/sync` stores each user's profile, conversations, scripts, and journal entries in D1. |
 | `migrations/` | D1 database schema. |
 | `public/` | The UI (plain HTML/CSS/JS, no build step). |
-| `tests/e2e-sync.mjs` | Browser test: sign-in and sync between two devices. |
+| `tests/unit/` | Unit tests (`npm run test:unit`, no server or API calls): sync against the real schema in SQLite, the crisis pre-check, and request handling. |
+| `tests/e2e-sync.mjs` | Browser test: sign-in, sync between devices, delete-all, and moving pre-account data into an account. |
 | `tests/e2e-demo.mjs` | Browser test: the public demo never calls the API or saves anything. |
 | `tests/e2e-live.mjs` | Browser test with the real coach (a few API calls): journal reply, memory, and a new chat that remembers. |
 | `tools/demo-spec.mjs`, `tools/record-demo.mjs` | What the demo shows, and the tool that records the real coach's replies for it. |
@@ -27,9 +28,9 @@ This is **Coach mode**: Heather's `social-coach` skill turned into a web app, wi
 
 **Layout.** Tabs across the top (Coach chat, Scripts, Journal), with the form on the left and the result card on the right, following the earlier Plainspoken prototype.
 
-**Memory.** The coach remembers what the user tells it. After each chat reply, journal entry, or script request, `/api/remember` updates a short list of facts (people, situations, plans, preferences, wins). The list is stored in the profile, so it syncs, and it's sent with every request. Users can see it and delete any item, or everything, under Profile & settings.
+**Memory.** The coach remembers what the user tells it, except anything about a crisis (those exchanges are never sent for memory, and the memory prompt refuses them too). After each chat reply, journal entry, or script request, `/api/remember` updates a short list of facts (people, situations, plans, preferences, wins). The list is stored in the profile, so it syncs, and it's sent with every request. Users can see it and delete any item, or everything, under Profile & settings. Memory updates use Claude Sonnet 5.5 to keep costs down.
 
-**Storage.** Each device keeps a full copy in the browser (profile and memory, conversations, scripts, journal entries), so the app opens instantly and works offline. With accounts set up, every change is also queued and sent to `/api/sync`, which returns what other devices changed. Per item, the newest edit wins; deletes are kept as markers so other devices remove the item too. Without Clerk keys the app runs as before: no sign-in, data only in the browser.
+**Storage.** Each device keeps a full copy in the browser (profile and memory, conversations, scripts, journal entries), so the app opens instantly and works offline. With accounts set up, every change is also queued and sent to `/api/sync`, which returns what other devices changed. Per item, the newest edit wins; edit times more than a minute ahead of the server are pulled back, so a device with a wrong clock can't win every conflict. Deletes are kept as markers so other devices remove the item too; "Delete all my data" turns every item into a marker, and other devices clear themselves when they see it. Each account can store up to about 50 MB; past that, new changes stay on the device until the user deletes something. Without Clerk keys the app runs as before: no sign-in, data only in the browser.
 
 ## Run it locally
 
@@ -40,7 +41,7 @@ This is **Coach mode**: Heather's `social-coach` skill turned into a web app, wi
 
 With `DEV_AUTH=true` and no Clerk keys in `.dev.vars`, you get a test sign-in (any name; each name is a separate account). It only works on localhost.
 
-Run the browser test with the dev server running: `npm run test:e2e`.
+Run the unit tests any time: `npm run test:unit`. Run the browser test with the dev server running: `npm run test:e2e`.
 
 ## Public demo
 
@@ -106,5 +107,6 @@ When the Access session runs out, the app's requests fail with "Couldn't reach H
 
 ## Notes
 
-- Model: Claude Opus 5.5 at `medium` effort, with server-side refusal fallback and prompt caching.
+- Model: Claude Opus 5.5 at `medium` effort, with server-side refusal fallback and prompt caching. Memory updates use Claude Sonnet 5.5.
+- Cost backstop: on any address other than localhost, AI requests are refused unless `ACCESS_CODE` or Clerk sign-in is set up, so a missing secret can't leave the API open.
 - Not yet built: payments, per-user rate limiting, Buddy mode (`buddy-system-prompt.md`), real avatar art (placeholders use each coach's colors).

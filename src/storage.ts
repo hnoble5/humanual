@@ -11,8 +11,17 @@ const MAX_ITEM_CHARS = 1_000_000; // D1 rows top out around 2 MB
 const MAX_RETURNED = 500;
 const ID_RE = /^[\w-]{1,64}$/;
 const CURSOR_LOOKBACK_MS = 2_000;
+// Edit times come from the device's clock. One set far in the future would win
+// every conflict, so times more than this far ahead of the server are pulled
+// back to the server's time.
+const MAX_CLOCK_SKEW_MS = 60_000;
+// Total stored per user (JSON characters, about bytes). Generous for one
+// person's chats, scripts and journal; it stops a runaway client or abuse.
+export const MAX_USER_CHARS = 50_000_000;
 
 export class SyncError extends Error {}
+/** The account is over its storage limit (HTTP 413). */
+export class StorageFullError extends SyncError {}
 
 interface Change {
   kind: string;
@@ -31,7 +40,7 @@ interface Row {
   deleted: number;
 }
 
-function parseChanges(raw: unknown): Change[] {
+function parseChanges(raw: unknown, now: number): Change[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) throw new SyncError("changes must be a list");
   if (raw.length > MAX_CHANGES) throw new SyncError("Too many changes at once");
@@ -42,14 +51,15 @@ function parseChanges(raw: unknown): Change[] {
     if (!Number.isFinite(c.updated_at) || c.updated_at <= 0) throw new SyncError("Invalid change time");
     const deleted = c.deleted === true;
     if (!deleted && (c.data === null || typeof c.data !== "object")) throw new SyncError("Missing data");
-    return { kind: c.kind, id: c.id, data: deleted ? null : c.data, updated_at: Math.floor(c.updated_at), deleted };
+    const updated_at = Math.min(Math.floor(c.updated_at), now + MAX_CLOCK_SKEW_MS);
+    return { kind: c.kind, id: c.id, data: deleted ? null : c.data, updated_at, deleted };
   });
 }
 
 export async function sync(db: D1Database, userId: string, body: any) {
-  const changes = parseChanges(body?.changes);
-  const since = parseCursor(body?.since);
   const now = Date.now();
+  const changes = parseChanges(body?.changes, now);
+  const since = parseCursor(body?.since);
 
   if (changes.length) {
     // Upsert, but only when this edit is at least as new as the stored one.
@@ -61,14 +71,15 @@ export async function sync(db: D1Database, userId: string, body: any) {
          server_at = excluded.server_at, deleted = excluded.deleted
        WHERE excluded.updated_at >= items.updated_at`,
     );
-    const batch = changes.map((c) => {
+    const rows = changes.map((c) => {
       const json = c.deleted ? null : JSON.stringify(c.data);
       if (json && json.length > MAX_ITEM_CHARS) {
         throw new SyncError("A conversation is too large to save. Start a new one.");
       }
-      return stmt.bind(userId, c.kind, c.id, json, c.updated_at, now, c.deleted ? 1 : 0);
+      return { c, json };
     });
-    await db.batch(batch);
+    await checkStorage(db, userId, rows);
+    await db.batch(rows.map(({ c, json }) => stmt.bind(userId, c.kind, c.id, json, c.updated_at, now, c.deleted ? 1 : 0)));
   }
 
   // Rows come back in (server_at, kind, id) order. A full page ends with a
@@ -100,6 +111,30 @@ export async function sync(db: D1Database, userId: string, body: any) {
     ? `${last.server_at}|${last.kind}|${last.id}`
     : Math.max(since.at, now - CURSOR_LOOKBACK_MS);
   return { items, cursor, more };
+}
+
+// Refuses changes that would take the account over MAX_USER_CHARS. Deletes and
+// edits that shrink things always go through, so a full account can make room.
+async function checkStorage(db: D1Database, userId: string, rows: { c: Change; json: string | null }[]) {
+  if (!rows.some((r) => r.json)) return;
+  const { results } = await db
+    .prepare("SELECT kind, id, LENGTH(data) AS size FROM items WHERE user_id = ?1 AND data IS NOT NULL")
+    .bind(userId)
+    .all<{ kind: string; id: string; size: number }>();
+  const sizes = new Map(results.map((r) => [`${r.kind}:${r.id}`, r.size]));
+  let total = 0;
+  for (const size of sizes.values()) total += size;
+  let after = total;
+  for (const { c, json } of rows) {
+    const key = `${c.kind}:${c.id}`;
+    after += (json?.length ?? 0) - (sizes.get(key) ?? 0);
+    sizes.set(key, json?.length ?? 0);
+  }
+  if (after > MAX_USER_CHARS && after > total) {
+    throw new StorageFullError(
+      "Your account is full, so new changes are only saved on this device. Delete some old conversations to make room.",
+    );
+  }
 }
 
 // The browser treats the cursor as opaque: it's a number (a time, meaning
