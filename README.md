@@ -28,7 +28,7 @@ This is **Coach mode**: Heather's `social-coach` skill turned into a web app, wi
 
 **Layout.** Tabs across the top (Coach chat, Scripts, Journal), with the form on the left and the result card on the right, following the earlier Plainspoken prototype.
 
-**Memory.** The coach remembers what the user tells it, except anything about a crisis (those exchanges are never sent for memory, and the memory prompt refuses them too). After each chat reply, journal entry, or script request, `/api/remember` updates a short list of facts (people, situations, plans, preferences, wins). The list is stored in the profile, so it syncs, and it's sent with every request. Users can see it and delete any item, or everything, under Profile & settings. Memory updates use Claude Sonnet 5.5 to keep costs down.
+**Memory.** The coach remembers what the user tells it, except anything about a crisis (those exchanges are never sent for memory, and the memory prompt refuses them too). After each chat reply, journal entry, or script request, `/api/remember` updates a short list of facts (people, situations, plans, preferences, wins). The list is stored in the profile, so it syncs, and it's sent with every request. Users can see it and delete any item, or everything, under Profile & settings.
 
 **Storage.** Each device keeps a full copy in the browser (profile and memory, conversations, scripts, journal entries), so the app opens instantly and works offline. With accounts set up, every change is also queued and sent to `/api/sync`, which returns what other devices changed. Per item, the newest edit wins; edit times more than a minute ahead of the server are pulled back, so a device with a wrong clock can't win every conflict. Deletes are kept as markers so other devices remove the item too; "Delete all my data" turns every item into a marker, and other devices clear themselves when they see it. Each account can store up to about 50 MB; past that, new changes stay on the device until the user deletes something. Without Clerk keys the app runs as before: no sign-in, data only in the browser.
 
@@ -107,6 +107,6 @@ When the Access session runs out, the app's requests fail with "Couldn't reach H
 
 ## Notes
 
-- Model: Claude Opus 5.5 at `medium` effort, with server-side refusal fallback and prompt caching. Memory updates use Claude Sonnet 5.5.
+- Model: Claude Opus 5.5 at `medium` effort (memory updates at `low`), with server-side refusal fallback and prompt caching. Rule: anything that works with the user's personal details uses Opus; only features that never see personal details may use Sonnet. Today that's every AI call.
 - Cost backstop: on any address other than localhost, AI requests are refused unless `ACCESS_CODE` or Clerk sign-in is set up, so a missing secret can't leave the API open.
 - Not yet built: payments, per-user rate limiting, Buddy mode (`buddy-system-prompt.md`), real avatar art (placeholders use each coach's colors).
