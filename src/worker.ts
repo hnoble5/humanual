@@ -252,7 +252,9 @@ async function handleScript(request: Request, env: Env): Promise<Response> {
       return json({ error: "The coach couldn't write a script for that one. Try rewording it." }, 422);
     }
     if (!response.parsed_output) return json({ error: "The script came back incomplete. Try again." }, 502);
-    return json({ script: response.parsed_output });
+    const { safety_concern, ...script } = response.parsed_output;
+    if (safety_concern) return json({ crisis: true });
+    return json({ script });
   } catch (err) {
     console.error("script failed", err);
     return json({ error: friendlyError(err) }, 502);
@@ -292,7 +294,9 @@ async function handleJournal(request: Request, env: Env): Promise<Response> {
       return json({ error: "The coach couldn't reply to that one. Try rewording it." }, 422);
     }
     if (!response.parsed_output) return json({ error: "The reply came back incomplete. Try again." }, 502);
-    return json({ card: response.parsed_output });
+    const { safety_concern, ...card } = response.parsed_output;
+    if (safety_concern) return json({ crisis: true });
+    return json({ card });
   } catch (err) {
     console.error("journal failed", err);
     return json({ error: friendlyError(err) }, 502);
@@ -314,6 +318,10 @@ async function handleRemember(request: Request, env: Env): Promise<Response> {
   } catch (err) {
     return json({ error: err instanceof BadRequest ? err.message : "Invalid request" }, 400);
   }
+
+  // Crisis exchanges never go into memory. The app already skips them; this is
+  // the backstop. A false positive only means one exchange isn't remembered.
+  if (crisisCheck(exchange)) return json({ memory: memories });
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   try {

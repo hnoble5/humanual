@@ -28,7 +28,10 @@ const device = async (label) => {
   const ctx = await browser.newContext({ viewport: label === "phone" ? { width: 390, height: 844 } : { width: 1280, height: 800 } });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => errors.push(`${label}: ${e.message}`));
-  page.on("console", (m) => { if (m.type() === "error") errors.push(`${label} console: ${m.text()}`); });
+  page.on("console", (m) => {
+    // Step 8 takes the laptop offline on purpose; failed loads then are expected.
+    if (m.type() === "error" && !m.text().includes("ERR_INTERNET_DISCONNECTED")) errors.push(`${label} console: ${m.text()}`);
+  });
   return { ctx, page };
 };
 
@@ -119,6 +122,7 @@ try {
     if (localStorage.getItem("seeded")) return;
     localStorage.setItem("seeded", "1");
     localStorage.setItem("humanual.settings.v1", JSON.stringify({ name: "Old Me", coach: "junie", style: "gentle", about: "", work: "", people: "", accessCode: "" }));
+    localStorage.setItem("humanual.journal.v1", JSON.stringify([{ id: "old-j1", text: "Called the gym to cancel.", replaying: "", coach: "junie", created: 1500, updated: 1500, card: null }]));
     localStorage.setItem("humanual.scripts.v1", JSON.stringify([{ id: "old-1", channel: "phone", task: "x", details: "", coach: "junie", created: 1000, script: { title: "Old local script", energy: "low", stakes: "low", norm: "", opener: "a", ask: "b", responses: [], stall: "c", exit: "d", closer: "e", message: "", alternative: "", comfort: [] } }]));
   });
   await legacy.page.goto(U);
@@ -128,8 +132,9 @@ try {
   await legacy.page.waitForFunction(() => document.querySelector("#sync-status")?.textContent === "Synced", null, { timeout: 15000 });
   const migrated = await api({ since: 0 }, legacyUser);
   ok("pre-account data uploaded to new account", migrated.items.some((i) => i.id === "old-1") && migrated.items.some((i) => i.kind === "profile" && i.data.name === "Old Me"));
-  const legacyLeft = await legacy.page.evaluate(() => localStorage.getItem("humanual.scripts.v1"));
-  ok("old unscoped copy removed after moving", legacyLeft === null);
+  ok("pre-account journal entry uploaded to new account", migrated.items.some((i) => i.kind === "journal" && i.id === "old-j1"));
+  const legacyLeft = await legacy.page.evaluate(() => [localStorage.getItem("humanual.scripts.v1"), localStorage.getItem("humanual.journal.v1")]);
+  ok("old unscoped copy removed after moving", legacyLeft.every((v) => v === null), JSON.stringify(legacyLeft));
 
   // 7. Sign out clears this user's data from the device.
   await phone.page.click("#sign-out");
@@ -143,6 +148,36 @@ try {
   await laptop.page.waitForSelector("#app:not([hidden])", { timeout: 15000 }).catch(() => {});
   ok("app opens offline with saved data", await laptop.page.isVisible("#app"));
   await laptop.ctx.setOffline(false);
+
+  // 9. "Delete everything" on the laptop also clears another signed-in device,
+  // and an old edit from a device that missed it can't bring the data back.
+  const tablet = await device("tablet");
+  await tablet.page.goto(U);
+  await tablet.page.fill("#dev-user", user);
+  await tablet.page.click("#dev-signin button[type=submit]");
+  await tablet.page.waitForSelector("#app:not([hidden])", { timeout: 15000 });
+  ok("tablet has the conversation before delete-all", (await tablet.page.textContent("#convo-list")).includes("Seeded chat about the dentist"));
+  await laptop.page.reload();
+  await laptop.page.waitForSelector("#app:not([hidden])", { timeout: 15000 });
+  await laptop.page.click("#open-settings");
+  laptop.page.once("dialog", (d) => d.accept());
+  await Promise.all([laptop.page.waitForEvent("load"), laptop.page.click("#wipe")]);
+  const wipedServer = await api({ since: 0 });
+  ok("delete-all leaves only deletion markers on the server",
+    wipedServer.items.length > 0 && wipedServer.items.every((i) => i.deleted && i.data === null)
+      && wipedServer.items.some((i) => i.kind === "profile" && i.deleted));
+  await Promise.all([
+    tablet.page.waitForEvent("load", { timeout: 15000 }),
+    tablet.page.evaluate(() => document.dispatchEvent(new Event("visibilitychange"))),
+  ]);
+  await tablet.page.waitForSelector("#onboarding:not([hidden])", { timeout: 15000 });
+  const tabletLeft = await tablet.page.evaluate(() => Object.entries(localStorage)
+    .filter(([k]) => /humanual\.u\..*\.(convos|scripts|journal)\.v1$/.test(k))
+    .map(([, v]) => JSON.parse(v)).flat().length);
+  ok("delete-all on laptop clears the tablet too", tabletLeft === 0, `${tabletLeft} items left`);
+  await api({ changes: [{ kind: "convo", id: "c-seed", updated_at: now, data: { id: "c-seed", title: "stale", messages: [], updated: now } }] });
+  const afterStale = (await api({ since: 0 })).items.find((i) => i.id === "c-seed");
+  ok("an older edit can't bring deleted data back", afterStale?.deleted === true);
 
   await api(null, user, "DELETE");
   await api(null, legacyUser, "DELETE");

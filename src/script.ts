@@ -9,7 +9,18 @@ export type ChannelId = keyof typeof CHANNELS;
 
 const level = z.enum(["low", "medium", "high"]);
 
+// Asked first so the model decides before writing anything upbeat. The regex
+// pre-check misses plenty of crisis wording; a card can't step out of its
+// format the way a chat reply can, so this flag sends the app to the crisis
+// banner instead of showing the card.
+export const safetyConcern = z
+  .boolean()
+  .describe(
+    "True if the user may be thinking about suicide, self-harm, or wanting to die, or if they or someone else may be in danger (including being hurt by someone). Read for meaning, not keywords: idioms like 'this meeting is killing me' are false. If true, the other fields don't matter; keep them short.",
+  );
+
 export const ScriptSchema = z.object({
+  safety_concern: safetyConcern,
   title: z.string().describe("Short name for what the script is for, e.g. 'Reschedule a dentist cleaning by phone'"),
   energy: level.describe("How draining this is likely to be"),
   stakes: level.describe("How much it matters if it goes imperfectly"),

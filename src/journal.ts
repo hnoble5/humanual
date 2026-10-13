@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { safetyConcern } from "./script";
 
 // The coach's reply to a journal entry: a short card, not a conversation.
 export const JournalSchema = z.object({
+  safety_concern: safetyConcern,
   title: z.string().describe("3-7 word title for the entry in the user's own terms, e.g. 'Called the gym to cancel'"),
   went_well: z
     .array(z.string())
