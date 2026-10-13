@@ -77,6 +77,33 @@ Testers enter the access code under **Profile & settings**.
 
 Existing testers' browser data moves into their account the first time they sign in.
 
+## Private app (Cloudflare Access)
+
+The Worker answers on two addresses (see `routes` in `wrangler.jsonc`):
+
+| Address | Who can reach it | What it's for |
+|---|---|---|
+| `coach.elitetestautomation.com` | Anyone | The portfolio demo at `/demo`. The full app here needs the access code, so strangers can't spend API credit. |
+| `app.elitetestautomation.com` | Only people on the Access list | The real app. |
+
+The `*.workers.dev` address is turned off (`"workers_dev": false`), because it would skip Access.
+
+### Setting it up (one time)
+
+1. `npm run deploy`. Wrangler adds `app.elitetestautomation.com` as a custom domain and creates its DNS record and certificate. It can take a few minutes to start answering.
+2. In the Cloudflare dashboard, open **Zero Trust**. The first time, pick a team name; the free plan covers a small team.
+3. Under **Settings → Authentication**, make sure **One-time PIN** is on (Access emails a login code; no passwords to manage).
+4. Under **Access → Applications**, choose **Add an application → Self-hosted**:
+   - Domain: `app.elitetestautomation.com`, path left blank (the whole site, including `/api`).
+   - Session duration: something long, like 1 month, so the installed app doesn't keep asking you to log in.
+   - Policy: action **Allow**, include **Emails**, and list the addresses allowed in.
+5. Open `https://app.elitetestautomation.com` in a private window. You should get the Cloudflare login page first, and the app only after entering the emailed code.
+6. Accounts (Clerk) are still what sync your data between devices. Add the new address to both lists:
+   - `npx wrangler secret put CLERK_AUTHORIZED_PARTIES`, with both origins, comma-separated: `https://app.elitetestautomation.com,https://coach.elitetestautomation.com`
+   - In Clerk, add `https://app.elitetestautomation.com` to the allowed origins.
+
+When the Access session runs out, the app's requests fail with "Couldn't reach Humanual" until you reload the page and log in again.
+
 ## Notes
 
 - Model: Claude Opus 5.5 at `medium` effort, with server-side refusal fallback and prompt caching.

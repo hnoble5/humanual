@@ -18,11 +18,18 @@
   // Lets src/prompt.ts import the Markdown prompt files as plain text.
   "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "observability": { "enabled": true },
-  // The portfolio address. The public demo is coach.elitetestautomation.com/demo.
-  "routes": [{ "pattern": "coach.elitetestautomation.com", "custom_domain": true }],
+  // Two addresses, one Worker:
+  //  - coach.: public, for the portfolio demo at /demo. ACCESS_CODE keeps the
+  //    full app there from spending API credit.
+  //  - app.: the real app, private behind Cloudflare Access (README, "Private app").
+  "routes": [
+    { "pattern": "coach.elitetestautomation.com", "custom_domain": true },
+    { "pattern": "app.elitetestautomation.com", "custom_domain": true }
+  ],
   // Otherwise `wrangler dev` presents requests as coming from the route's host,
   // which turns off the localhost-only dev sign-in (src/auth.ts).
   "dev": { "host": "localhost" },
-  "workers_dev": true,
+  // Off: a *.workers.dev address would skip Cloudflare Access on app.
+  "workers_dev": false,
   "preview_urls": false
 }
