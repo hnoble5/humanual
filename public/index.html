@@ -42,6 +42,9 @@
       <div class="guest-option">
         <p class="muted small">No account needed. As a guest, everything stays in this browser. Sign in later to keep it on all your devices.</p>
         <button class="btn big" type="button" id="continue-guest" data-testid="continue-guest">Continue as guest</button>
+        <p class="guest-clear" id="guest-clear" hidden>
+          <button class="linkback danger" type="button" id="clear-guest" data-testid="clear-guest">Delete guest data from this browser</button>
+        </p>
       </div>
     </div>
   </main>
@@ -58,8 +61,9 @@
       </div>
 
       <label class="field">
-        <span>What should your coach call you?</span>
-        <input id="ob-name" name="name" autocomplete="given-name" maxlength="100" required>
+        <span>What should your coach call you? <span class="optional">(optional)</span></span>
+        <small>Leave it blank and your coach will call you "friend".</small>
+        <input id="ob-name" name="name" autocomplete="given-name" maxlength="100" placeholder="friend">
       </label>
 
       <fieldset class="field">
@@ -99,6 +103,7 @@
           <div class="account-actions">
             <button class="linkback" type="button" id="manage-account">Account</button>
             <button class="linkback" type="button" id="sign-out">Sign out</button>
+            <button class="linkback" type="button" id="clear-guest-app" data-testid="clear-guest-app" hidden>Delete guest data</button>
           </div>
         </div>
         <button class="btn" id="open-settings" type="button">
@@ -290,7 +295,7 @@
       </div>
       <p class="muted">Your coach reads this before every conversation. Only add what you're comfortable with. It's saved with your conversations and sent to the coach with each message.</p>
 
-      <label class="field"><span>Name</span><input name="name" maxlength="100" required></label>
+      <label class="field"><span>Name <span class="optional">(optional)</span></span><input name="name" maxlength="100" placeholder="friend"></label>
       <label class="field">
         <span>About you</span>
         <small>What's hard for you socially, what helps, how you like to communicate.</small>

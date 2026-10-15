@@ -401,6 +401,7 @@ function renderAccount() {
       : `Test user: ${load("humanual.devUser", "")}`;
   $("#manage-account").hidden = guest || authMode !== "clerk";
   $("#sign-out").textContent = guest ? "Sign in" : "Sign out";
+  $("#clear-guest-app").hidden = !guest;
   if (guest) setSyncStatus("");
 }
 
@@ -413,6 +414,31 @@ function renderAccount() {
 
 const GUEST_KEY = "humanual.guest";
 const isGuest = () => !uid && authMode !== "none";
+
+// What the coach calls someone who leaves the name blank.
+const DEFAULT_NAME = "friend";
+
+// True if anything a guest saved is still in this browser.
+function hasGuestData() {
+  try {
+    return [...Object.values(LEGACY), ...USER_KEYS.map((n) => `humanual.${n}.v1`)]
+      .some((k) => localStorage.getItem(k) !== null);
+  } catch {
+    return false;
+  }
+}
+
+// Removes everything saved as a guest in this browser, right away.
+function clearGuestData() {
+  if (!confirm("Delete everything saved as a guest in this browser (profile, memory, conversations, scripts, journal)? This can't be undone.")) return;
+  uid = null;
+  clearDeviceCopy();
+  try {
+    for (const k of Object.values(LEGACY)) localStorage.removeItem(k);
+    localStorage.removeItem(GUEST_KEY);
+  } catch {}
+  location.reload();
+}
 
 function continueAsGuest() {
   try { localStorage.setItem(GUEST_KEY, "1"); } catch {}
@@ -441,22 +467,45 @@ async function signOut() {
   location.reload();
 }
 
-function loadClerk(publishableKey) {
+// Clerk's browser SDK comes in two parts since clerk-js v6: the core, and the
+// sign-in screens (@clerk/ui), which must be passed to load() or mounting the
+// sign-in box fails. Both are pinned to a pair Clerk released together, with
+// integrity hashes, so a new Clerk release can't change or break sign-in.
+// To upgrade: pick a clerk-js and ui pair published the same day, then update
+// the versions and hashes (openssl dgst -sha384 -binary FILE | openssl base64 -A).
+const CLERK_SCRIPTS = [
+  {
+    src: "https://cdn.jsdelivr.net/npm/@clerk/ui@1.40.0/dist/ui.browser.js",
+    integrity: "sha384-OWG86Ifj21A9SDlkdfAn5+wGkzqDDZ253RPk6Rw+AOZvVIMMKudDttgBQcybG3oO",
+  },
+  {
+    src: "https://cdn.jsdelivr.net/npm/@clerk/clerk-js@6.39.0/dist/clerk.browser.js",
+    integrity: "sha384-7V+lCusKNaHfJJ+hw5lg7HLaN9Hx1ynZgucUw6SZaW/4Ylbu2QhkyJ8bTcw5fa0C",
+    withKey: true, // clerk-js only creates window.Clerk when its tag carries the key
+  },
+];
+
+function loadScript({ src, integrity, withKey }, publishableKey) {
   return new Promise((resolve, reject) => {
     const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/@clerk/clerk-js@6/dist/clerk.browser.js";
-    script.async = true;
+    script.src = src;
+    script.integrity = integrity;
     script.crossOrigin = "anonymous";
-    script.dataset.clerkPublishableKey = publishableKey;
+    if (withKey) script.dataset.clerkPublishableKey = publishableKey;
     script.onload = resolve;
     script.onerror = () => reject(new Error("Couldn't load sign-in"));
     document.head.append(script);
-  }).then(async () => {
-    let c = window.Clerk;
-    if (typeof c === "function") c = new c(publishableKey);
-    await c.load();
-    return c;
   });
+}
+
+async function loadClerk(publishableKey) {
+  for (const s of CLERK_SCRIPTS) await loadScript(s, publishableKey);
+  const ClerkUI = window.__internal_ClerkUICtor;
+  if (!ClerkUI) throw new Error("Couldn't load sign-in");
+  let c = window.Clerk;
+  if (typeof c === "function") c = new c(publishableKey);
+  await c.load({ ui: { ClerkUI } });
+  return c;
 }
 
 function showSignIn() {
@@ -464,9 +513,17 @@ function showSignIn() {
   $("#app").hidden = true;
   $("#signin").hidden = false;
   $("#continue-guest").onclick = continueAsGuest;
+  $("#guest-clear").hidden = !hasGuestData();
+  $("#clear-guest").onclick = clearGuestData;
   if (authMode === "clerk") {
     $("#dev-signin").hidden = true;
-    clerk.mountSignIn($("#clerk-mount"));
+    try {
+      clerk.mountSignIn($("#clerk-mount"));
+    } catch (err) {
+      // Never leave an empty box: say so (guests can still continue).
+      console.error("sign-in failed to load", err);
+      $("#signin-error").hidden = false;
+    }
   } else {
     $("#clerk-mount").hidden = true;
     $("#dev-signin").hidden = false;
@@ -581,7 +638,7 @@ $("#onboard-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const form = new FormData(e.target);
   settings = {
-    name: form.get("name").trim(),
+    name: form.get("name").trim() || DEFAULT_NAME,
     coach: form.get("coach") || "junie",
     style: form.get("style") || "direct",
     about: "",
@@ -1191,7 +1248,7 @@ $("#settings").addEventListener("close", () => {
   const changedCoach = form.elements.coach.value !== settings.coach || form.elements.style.value !== settings.style;
   settings = {
     ...settings,
-    name: form.elements.name.value.trim() || settings.name,
+    name: form.elements.name.value.trim() || DEFAULT_NAME,
     about: form.elements.about.value.trim(),
     work: form.elements.work.value.trim(),
     people: form.elements.people.value.trim(),
@@ -1968,6 +2025,7 @@ $("#dev-signin").addEventListener("submit", (e) => {
   enterAs(`dev_${id}`);
 });
 $("#sign-out").addEventListener("click", signOut);
+$("#clear-guest-app").addEventListener("click", clearGuestData);
 $("#manage-account").addEventListener("click", () => clerk?.openUserProfile());
 
 // ---------- boot ----------
