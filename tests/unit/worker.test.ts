@@ -21,42 +21,69 @@ await build({
 });
 const worker = (await import(pathToFileURL(out).href)).default;
 
+const APP = "app.example.com";
+const DEMO_HOST = "coach.example.com";
 const env = (extra: Record<string, unknown> = {}) =>
-  ({ ANTHROPIC_API_KEY: "sk-ant-test", ASSETS: { fetch: async () => new Response("asset") }, ...extra }) as any;
+  ({ ANTHROPIC_API_KEY: "sk-ant-test", APP_HOSTS: APP, ASSETS: { fetch: async () => new Response("asset") }, ...extra }) as any;
 
 const post = (host: string, path: string, body: unknown) =>
   new Request(`https://${host}${path}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 
 const chat = { coach: "junie", style: "direct", mode: null, messages: [{ role: "user", content: "hi" }] };
+const AI_PATHS = ["/api/chat", "/api/script", "/api/journal", "/api/remember"];
 
-test("AI endpoints refuse on a public address with no access code and no sign-in", async () => {
-  for (const path of ["/api/chat", "/api/script", "/api/journal", "/api/remember"]) {
-    const res = await worker.fetch(post("app.example.com", path, chat), env());
-    assert.equal(res.status, 503, path);
-    assert.match((await res.json()).error, /isn't available/);
+test("the coach never answers on the public demo address", async () => {
+  for (const path of AI_PATHS) {
+    const res = await worker.fetch(post(DEMO_HOST, path, chat), env());
+    assert.equal(res.status, 403, path);
+    assert.match((await res.json()).error, /only answers in the Humanual app/);
   }
 });
 
-test("with an access code set, a missing code is a 401, not the backstop", async () => {
-  const res = await worker.fetch(post("app.example.com", "/api/chat", chat), env({ ACCESS_CODE: "s3cret" }));
-  assert.equal(res.status, 401);
-  assert.equal((await res.json()).code, "access");
+test("guests reach the coach on the app address with no code or sign-in", async () => {
+  // An invalid coach gets a 400 from input checking, which proves the request
+  // got past every gate without calling the AI.
+  for (const path of AI_PATHS.slice(0, 3)) {
+    const res = await worker.fetch(post(APP, path, { ...chat, coach: "nobody" }), env());
+    assert.equal(res.status, 400, path);
+  }
+});
+
+test("the app address list is case- and space-tolerant, and localhost always works", async () => {
+  const e = env({ APP_HOSTS: " Other.example.com , APP.example.com " });
+  assert.equal((await worker.fetch(post(APP, "/api/chat", { ...chat, coach: "nobody" }), e)).status, 400);
+  const local = await worker.fetch(post("localhost", "/api/chat", { ...chat, coach: "nobody" }), env({ APP_HOSTS: "" }));
+  assert.equal(local.status, 400);
+});
+
+test("config tells the page whether this address serves the full app", async () => {
+  const app = await (await worker.fetch(new Request(`https://${APP}/api/config`), env())).json();
+  const demo = await (await worker.fetch(new Request(`https://${DEMO_HOST}/api/config`), env())).json();
+  assert.equal(app.fullApp, true);
+  assert.equal(demo.fullApp, false);
+  assert.equal("accessCodeRequired" in app, false);
+});
+
+test("sync needs a signed-in user, and never runs on the demo address", async () => {
+  const dev = env({ DEV_AUTH: "true" });
+  const anon = await worker.fetch(post("localhost", "/api/sync", { since: 0 }), dev);
+  assert.equal(anon.status, 401);
+  assert.equal((await anon.json()).code, "signin");
+  const clerk = env({ CLERK_SECRET_KEY: "sk_test_x", CLERK_PUBLISHABLE_KEY: "pk_test_x" });
+  assert.equal((await worker.fetch(post(DEMO_HOST, "/api/sync", { since: 0 }), clerk)).status, 403);
 });
 
 test("inherited property names are rejected as unknown, not a crash", async () => {
-  const e = env({ ACCESS_CODE: "s3cret" });
   for (const [field, value] of [["coach", "constructor"], ["coach", "__proto__"], ["mode", "toString"]]) {
-    const req = post("app.example.com", "/api/chat", { ...chat, [field]: value });
-    req.headers.set("x-access-code", "s3cret");
-    const res = await worker.fetch(req, e);
+    const res = await worker.fetch(post(APP, "/api/chat", { ...chat, [field]: value }), env());
     assert.equal(res.status, 400, `${field}=${value}`);
     assert.match((await res.json()).error, /Unknown/);
   }
 });
 
 test("unexpected errors come back as JSON", async () => {
-  const broken = env({ ACCESS_CODE: "s3cret", ASSETS: { fetch: async () => { throw new Error("boom"); } } });
-  const res = await worker.fetch(new Request("https://app.example.com/"), broken);
+  const broken = env({ ASSETS: { fetch: async () => { throw new Error("boom"); } } });
+  const res = await worker.fetch(new Request(`https://${APP}/`), broken);
   assert.equal(res.status, 500);
   assert.match((await res.json()).error, /Something went wrong/);
 });

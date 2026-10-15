@@ -54,11 +54,10 @@ After changing the prompts, re-record so the demo matches (costs about 30 API re
 ```sh
 npx wrangler login
 npx wrangler secret put ANTHROPIC_API_KEY
-npx wrangler secret put ACCESS_CODE   # strongly recommended: anyone with the URL could otherwise spend your API credit
 npm run deploy
 ```
 
-Testers enter the access code under **Profile & settings**.
+Who can use the coach is decided by address, not by a code: only the hosts in `APP_HOSTS` (in `wrangler.jsonc`) answer AI requests, and those sit behind Cloudflare Access (see "Private app" below). Inside the app, people sign in to their account or continue as a guest.
 
 ### Turning on accounts (one time)
 
@@ -84,7 +83,7 @@ The Worker answers on two addresses (see `routes` in `wrangler.jsonc`):
 
 | Address | Who can reach it | What it's for |
 |---|---|---|
-| `coach.elitetestautomation.com` | Anyone | The portfolio demo at `/demo`. The full app here needs the access code, so strangers can't spend API credit. |
+| `coach.elitetestautomation.com` | Anyone | The portfolio demo at `/demo`. Any other page sends visitors to the demo, and the coach and sync refuse to run here, so strangers can't spend API credit. |
 | `app.elitetestautomation.com` | Only people on the Access list | The real app. |
 
 The `*.workers.dev` address is turned off (`"workers_dev": false`), because it would skip Access.
@@ -108,5 +107,6 @@ When the Access session runs out, the app's requests fail with "Couldn't reach H
 ## Notes
 
 - Model: Claude Opus 5.5 at `medium` effort (memory updates at `low`), with server-side refusal fallback and prompt caching. Rule: anything that works with the user's personal details uses Opus; only features that never see personal details may use Sonnet. Today that's every AI call.
-- Cost backstop: on any address other than localhost, AI requests are refused unless `ACCESS_CODE` or Clerk sign-in is set up, so a missing secret can't leave the API open.
+- Cost backstop: AI requests are answered only on the hosts in `APP_HOSTS` (behind Cloudflare Access) and on localhost. If you ever remove Access from `app.`, add usage limits first, because guests need no sign-in.
+- Guests: with accounts set up, people can continue as a guest. Guest data stays in that browser; signing in later moves it into the account.
 - Not yet built: payments, per-user rate limiting, Buddy mode (`buddy-system-prompt.md`), real avatar art (placeholders use each coach's colors).

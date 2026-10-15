@@ -31,5 +31,7 @@
   "dev": { "host": "localhost" },
   // Off: a *.workers.dev address would skip Cloudflare Access on app.
   "workers_dev": false,
+  // Hosts that serve the full app; everything else gets only the demo (src/worker.ts).
+  "vars": { "APP_HOSTS": "app.elitetestautomation.com" },
   "preview_urls": false
 }

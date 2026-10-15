@@ -58,7 +58,7 @@ try {
   const server1 = await api({ since: 0 });
   const prof = server1.items.find((i) => i.kind === "profile");
   ok("profile reached the server", prof?.data?.name === "Heather");
-  ok("access code not synced", prof && !("accessCode" in prof.data));
+  ok("no leftover access code in the synced profile", prof && !("accessCode" in prof.data));
 
   // 2. Seed a conversation + script on the server as if made on another device.
   const now = Date.now();
@@ -179,8 +179,35 @@ try {
   const afterStale = (await api({ since: 0 })).items.find((i) => i.id === "c-seed");
   ok("an older edit can't bring deleted data back", afterStale?.deleted === true);
 
+  // 10. Guest: no account needed; signing in later moves guest data into the account.
+  const guestUser = user + "G";
+  const guest = await device("guest");
+  await guest.page.goto(U);
+  await guest.page.waitForSelector("#signin:not([hidden])");
+  await guest.page.click("[data-testid=continue-guest]");
+  await guest.page.waitForSelector("#onboarding:not([hidden])");
+  ok("guest welcome says data stays in this browser", (await guest.page.textContent("#ob-storage")).includes("guest"));
+  await guest.page.fill("#ob-name", "Guesty");
+  await guest.page.check("#ob-age");
+  await guest.page.click("#onboard-form button[type=submit]");
+  await guest.page.waitForSelector("#app:not([hidden])");
+  ok("guest gets into the app", true);
+  ok("account row says guest", (await guest.page.textContent("#account-email")).includes("Guest"));
+  await guest.page.reload();
+  await guest.page.waitForSelector("#app:not([hidden])", { timeout: 15000 });
+  ok("guest goes straight back in after a reload", await guest.page.isHidden("#signin"));
+  await guest.page.click("#sign-out"); // reads "Sign in" for guests
+  await guest.page.waitForSelector("#signin:not([hidden])");
+  await guest.page.fill("#dev-user", guestUser);
+  await guest.page.click("#dev-signin button[type=submit]");
+  await guest.page.waitForSelector("#app:not([hidden])", { timeout: 15000 });
+  await guest.page.waitForFunction(() => document.querySelector("#sync-status")?.textContent === "Synced", null, { timeout: 15000 });
+  const adopted = (await api({ since: 0 }, guestUser)).items.find((i) => i.kind === "profile");
+  ok("guest profile moves into the account on sign-in", adopted?.data?.name === "Guesty");
+
   await api(null, user, "DELETE");
   await api(null, legacyUser, "DELETE");
+  await api(null, guestUser, "DELETE");
 } catch (e) {
   results.push("ERROR  " + e.message.split("\n")[0]);
 } finally {
