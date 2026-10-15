@@ -205,6 +205,24 @@ try {
   const adopted = (await api({ since: 0 }, guestUser)).items.find((i) => i.kind === "profile");
   ok("guest profile moves into the account on sign-in", adopted?.data?.name === "Guesty");
 
+  // 11. Name is optional (defaults to "friend"), and a guest can wipe their data at once.
+  const guest2 = await device("guest2");
+  await guest2.page.goto(U);
+  await guest2.page.waitForSelector("#signin:not([hidden])");
+  ok("no delete-guest-data link before any guest data exists", await guest2.page.isHidden("#guest-clear"));
+  await guest2.page.click("[data-testid=continue-guest]");
+  await guest2.page.waitForSelector("#onboarding:not([hidden])");
+  await guest2.page.check("#ob-age");
+  await guest2.page.click("#onboard-form button[type=submit]");
+  await guest2.page.waitForSelector("#app:not([hidden])");
+  const savedName = await guest2.page.evaluate(() => JSON.parse(localStorage.getItem("humanual.settings.v1") || "{}").name);
+  ok("blank name defaults to friend", savedName === "friend", savedName);
+  guest2.page.once("dialog", (d) => d.accept());
+  await Promise.all([guest2.page.waitForEvent("load"), guest2.page.click("[data-testid=clear-guest-app]")]);
+  await guest2.page.waitForSelector("#signin:not([hidden])");
+  const left = await guest2.page.evaluate(() => Object.keys(localStorage).filter((k) => /^humanual\.(settings|convos|scripts|journal|outbox|cursor|guest)/.test(k)));
+  ok("delete guest data clears this browser and returns to sign-in", left.length === 0, left.join(","));
+
   await api(null, user, "DELETE");
   await api(null, legacyUser, "DELETE");
   await api(null, guestUser, "DELETE");

@@ -19,19 +19,19 @@
   "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "observability": { "enabled": true },
   // Two addresses, one Worker:
-  //  - coach.: public, for the portfolio demo at /demo. ACCESS_CODE keeps the
-  //    full app there from spending API credit.
-  //  - app.: the real app, private behind Cloudflare Access (README, "Private app").
+  //  - coach.: public, for the portfolio demo at /demo. The coach and sync
+  //    refuse to run there, so nobody can spend API credit from it.
+  //  - humanual.: the real app, private behind Cloudflare Access (README, "Private app").
   "routes": [
     { "pattern": "coach.elitetestautomation.com", "custom_domain": true },
-    { "pattern": "app.elitetestautomation.com", "custom_domain": true }
+    { "pattern": "humanual.elitetestautomation.com", "custom_domain": true }
   ],
   // Otherwise `wrangler dev` presents requests as coming from the route's host,
   // which turns off the localhost-only dev sign-in (src/auth.ts).
   "dev": { "host": "localhost" },
-  // Off: a *.workers.dev address would skip Cloudflare Access on app.
+  // Off: a *.workers.dev address would skip Cloudflare Access on humanual.
   "workers_dev": false,
   // Hosts that serve the full app; everything else gets only the demo (src/worker.ts).
-  "vars": { "APP_HOSTS": "app.elitetestautomation.com" },
+  "vars": { "APP_HOSTS": "humanual.elitetestautomation.com" },
   "preview_urls": false
 }
