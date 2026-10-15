@@ -363,6 +363,11 @@ function adoptLegacyData() {
 }
 
 async function enterAs(userId, { prefillName = "" } = {}) {
+  // Clerk marks its sign-in steps in the address (#/create, #/factor-one).
+  // They mean nothing once someone is in, so clear them.
+  if (location.hash.startsWith("#/")) {
+    try { history.replaceState(null, "", location.pathname + location.search); } catch {}
+  }
   uid = userId;
   if (uid) save("humanual.lastUser", uid);
   loadUserData();
@@ -504,7 +509,10 @@ async function loadClerk(publishableKey) {
   if (!ClerkUI) throw new Error("Couldn't load sign-in");
   let c = window.Clerk;
   if (typeof c === "function") c = new c(publishableKey);
-  await c.load({ ui: { ClerkUI } });
+  // Sign-in and sign-up both live on this page. Without these, Clerk's
+  // "Sign up" link leaves for its own hosted page.
+  const here = `${location.origin}/`;
+  await c.load({ ui: { ClerkUI }, signInUrl: here, signUpUrl: here });
   return c;
 }
 
@@ -518,7 +526,9 @@ function showSignIn() {
   if (authMode === "clerk") {
     $("#dev-signin").hidden = true;
     try {
-      clerk.mountSignIn($("#clerk-mount"));
+      // One box for both: existing accounts sign in, new emails go straight
+      // on to creating an account, all without leaving the page.
+      clerk.mountSignIn($("#clerk-mount"), { withSignUp: true });
     } catch (err) {
       // Never leave an empty box: say so (guests can still continue).
       console.error("sign-in failed to load", err);
