@@ -28,7 +28,7 @@
     <div class="onboard-card">
       <p class="brand">humanual</p>
       <h1>The unwritten manual for dealing with people.</h1>
-      <p class="lede">Sign in so your scripts and conversations are saved and follow you between your phone and your laptop.</p>
+      <p class="lede">Sign in so your scripts and conversations follow you between your phone and your laptop. Or continue as a guest for quick advice.</p>
       <p class="notice" id="signin-error" hidden>Couldn't load sign-in. Check your connection and reload the page.</p>
       <div id="clerk-mount"></div>
       <form id="dev-signin" class="dev-signin" hidden>
@@ -39,6 +39,10 @@
         </label>
         <button class="btn primary big" type="submit">Sign in</button>
       </form>
+      <div class="guest-option">
+        <p class="muted small">No account needed. As a guest, everything stays in this browser. Sign in later to keep it on all your devices.</p>
+        <button class="btn big" type="button" id="continue-guest" data-testid="continue-guest">Continue as guest</button>
+      </div>
     </div>
   </main>
 
@@ -322,12 +326,6 @@
         <p class="muted small" id="memory-empty">Nothing yet. As you chat and journal, what you share shows up here.</p>
         <div><button class="btn ghost danger small" type="button" id="memory-clear" hidden>Forget everything</button></div>
       </div>
-
-      <label class="field" id="access-field">
-        <span>Access code</span>
-        <small>Required while Humanual is in private testing.</small>
-        <input name="accessCode" autocomplete="off">
-      </label>
 
       <div class="sheet-actions">
         <button class="btn danger ghost" type="button" id="wipe">Delete all my data</button>

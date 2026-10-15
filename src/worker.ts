@@ -103,49 +103,40 @@ function friendlyError(err: unknown): string {
   return "Something went wrong. Try again.";
 }
 
-const ACCESS_ERROR = { error: "Enter the access code in Settings to use the coach.", code: "access" };
 const SIGNIN_ERROR = { error: "Please sign in again.", code: "signin" };
 
 /**
- * Checks the access code and, once sign-in is set up, that the request is
- * signed in. Returns the user id (null while sign-in isn't configured), or the
- * error response to send.
+ * True when this address serves the full app: one of APP_HOSTS (set in
+ * wrangler.jsonc), or localhost for development. Those hosts sit behind
+ * Cloudflare Access, which decides who gets in, so the coach answers both
+ * guests and signed-in users there. Every other address (the public demo at
+ * coach.) gets no AI at all, so nobody can spend the API credit from outside.
  */
-async function guard(request: Request, env: Env): Promise<{ userId: string | null } | Response> {
-  if (env.ACCESS_CODE && request.headers.get("x-access-code") !== env.ACCESS_CODE) {
-    return json(ACCESS_ERROR, 401);
-  }
-  if (authMode(request, env) === "none") return { userId: null };
+function isAppHost(request: Request, env: Env) {
+  const host = new URL(request.url).hostname;
+  if (host === "localhost" || host === "127.0.0.1") return true;
+  return (env.APP_HOSTS ?? "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean).includes(host);
+}
+
+/** Sync needs a signed-in user. Returns their id, or the error response to send. */
+async function requireUser(request: Request, env: Env): Promise<{ userId: string } | Response> {
   const userId = await getUserId(request, env);
   return userId ? { userId } : json(SIGNIN_ERROR, 401);
 }
 
-async function guardModel(request: Request, env: Env) {
+/** The coach endpoints: open to guests and signed-in users, on app hosts only. */
+async function guardModel(request: Request, env: Env): Promise<Response | null> {
   if (!env.ANTHROPIC_API_KEY) return json({ error: "The server's API key isn't set up yet." }, 500);
-  if (openToEveryone(request, env)) {
-    console.error("refusing AI request: no ACCESS_CODE and no sign-in on a public address");
-    return json({ error: "The coach isn't available on this address yet." }, 503);
-  }
-  return guard(request, env);
-}
-
-/**
- * True when anyone on the internet could spend the API credit: no access code
- * and no sign-in. That's only allowed on localhost, for development. In
- * production it means a secret is missing, so AI requests are refused rather
- * than left open.
- */
-function openToEveryone(request: Request, env: Env) {
-  if (env.ACCESS_CODE || authMode(request, env) !== "none") return false;
-  const host = new URL(request.url).hostname;
-  return host !== "localhost" && host !== "127.0.0.1";
+  if (!isAppHost(request, env)) return json({ error: "The coach only answers in the Humanual app." }, 403);
+  return null;
 }
 
 async function handleSync(request: Request, env: Env): Promise<Response> {
   if (authMode(request, env) === "none") return json({ error: "Sync isn't set up on this server." }, 501);
-  const auth = await guard(request, env);
+  if (!isAppHost(request, env)) return json({ error: "Sync only works in the Humanual app." }, 403);
+  const auth = await requireUser(request, env);
   if (auth instanceof Response) return auth;
-  const userId = auth.userId!;
+  const userId = auth.userId;
 
   if (request.method === "DELETE") {
     await deleteAll(env.DB, userId);
@@ -163,8 +154,8 @@ async function handleSync(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleChat(request: Request, env: Env): Promise<Response> {
-  const auth = await guardModel(request, env);
-  if (auth instanceof Response) return auth;
+  const blocked = await guardModel(request, env);
+  if (blocked) return blocked;
 
   let req: ChatRequest;
   try {
@@ -243,8 +234,8 @@ ${turnReminder(req)}` : turnReminder(req) },
 }
 
 async function handleScript(request: Request, env: Env): Promise<Response> {
-  const auth = await guardModel(request, env);
-  if (auth instanceof Response) return auth;
+  const blocked = await guardModel(request, env);
+  if (blocked) return blocked;
 
   let req;
   try {
@@ -286,8 +277,8 @@ async function handleScript(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleJournal(request: Request, env: Env): Promise<Response> {
-  const auth = await guardModel(request, env);
-  if (auth instanceof Response) return auth;
+  const blocked = await guardModel(request, env);
+  if (blocked) return blocked;
 
   let req;
   try {
@@ -329,8 +320,8 @@ async function handleJournal(request: Request, env: Env): Promise<Response> {
 
 // Updates the list of things the coach remembers after a chat reply or journal entry.
 async function handleRemember(request: Request, env: Env): Promise<Response> {
-  const auth = await guardModel(request, env);
-  if (auth instanceof Response) return auth;
+  const blocked = await guardModel(request, env);
+  if (blocked) return blocked;
 
   let memories: string[], exchange: string, today: string;
   try {
@@ -407,7 +398,8 @@ async function route(request: Request, env: Env): Promise<Response> {
   if (url.pathname === "/api/config") {
     const auth = authMode(request, env);
     return json({
-      accessCodeRequired: Boolean(env.ACCESS_CODE),
+      // false on the public demo address: the app sends visitors to /demo.
+      fullApp: isAppHost(request, env),
       auth,
       clerkPublishableKey: auth === "clerk" ? env.CLERK_PUBLISHABLE_KEY : undefined,
     });

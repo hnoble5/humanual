@@ -5,7 +5,12 @@ declare module "*.md" {
 
 interface Env {
   ANTHROPIC_API_KEY: string;
-  ACCESS_CODE?: string;
+  /**
+   * Comma-separated hostnames that serve the full app (behind Cloudflare
+   * Access), e.g. "app.elitetestautomation.com". Set in wrangler.jsonc.
+   * Other hosts get the demo only and no AI. Localhost always counts.
+   */
+  APP_HOSTS?: string;
   ASSETS: Fetcher;
   DB: D1Database;
   /** Clerk sign-in. Both keys are needed; until then the app runs without accounts. */

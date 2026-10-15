@@ -17,10 +17,7 @@ const PARTS = ["conversations", "scripts", "journal", "memory"];
 const wanted = process.argv.slice(2).length ? process.argv.slice(2) : PARTS;
 for (const p of wanted) if (!PARTS.includes(p)) throw new Error(`Unknown part "${p}". Use: ${PARTS.join(", ")}`);
 
-let devVars = "";
-try { devVars = readFileSync(new URL("../.dev.vars", import.meta.url), "utf8"); } catch {}
-const accessCode = devVars.match(/^ACCESS_CODE\s*=\s*"?([^"\r\n]*)"?/m)?.[1] ?? "";
-const headers = { "content-type": "application/json", "x-access-code": accessCode, "x-dev-user": "demo-recorder" };
+const headers = { "content-type": "application/json", "x-dev-user": "demo-recorder" };
 const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
 async function post(path, body) {

@@ -109,7 +109,6 @@ let scripts = [];
 let journal = [];   // journal entries, newest first
 let current = null; // the open conversation (may be an unsaved draft)
 let busy = null;    // AbortController while a reply is streaming
-let accessCodeRequired = false;
 
 const saveSettings = () => save(keyFor("settings"), settings);
 const saveConvos = () => save(keyFor("convos"), convos);
@@ -146,7 +145,7 @@ function setSyncStatus(text) {
 }
 
 async function authHeaders() {
-  const h = { "content-type": "application/json", "x-access-code": settings?.accessCode || "" };
+  const h = { "content-type": "application/json" };
   if (authMode === "clerk" && clerk?.session) h.authorization = `Bearer ${await clerk.session.getToken()}`;
   if (authMode === "dev") h["x-dev-user"] = load("humanual.devUser", "");
   return h;
@@ -162,7 +161,7 @@ const LISTS = {
   journal: () => journal,
 };
 
-// The profile syncs without the access code, which is a per-device beta gate.
+// accessCode is left over from the old in-app access code; it never syncs.
 function profileData() {
   const { accessCode, ...rest } = settings ?? {};
   return rest;
@@ -209,7 +208,7 @@ async function syncNow() {
         });
         if (res.status === 401) {
           const data = await res.json().catch(() => ({}));
-          setSyncStatus(data.code === "access" ? "Not synced: enter the access code" : "Not synced: sign in again");
+          setSyncStatus("Not synced: sign in again");
           return;
         }
         if (res.status === 413) {
@@ -268,7 +267,7 @@ function applyRemote(items) {
       }
       if (!item.data) continue;
       if (!settings || (settings.updated ?? 0) < item.updated_at) {
-        settings = { ...item.data, accessCode: settings?.accessCode || "" };
+        settings = { ...item.data };
         changedProfile = true;
       }
     } else if (item.kind === "convo") {
@@ -392,16 +391,41 @@ async function enterAs(userId, { prefillName = "" } = {}) {
 
 function renderAccount() {
   const box = $("#account");
-  box.hidden = !syncEnabled();
-  if (!syncEnabled()) return;
-  const who = authMode === "clerk"
-    ? clerk?.user?.primaryEmailAddress?.emailAddress ?? "Signed in"
-    : `Test user: ${load("humanual.devUser", "")}`;
-  $("#account-email").textContent = who;
-  $("#manage-account").hidden = authMode !== "clerk";
+  const guest = isGuest();
+  box.hidden = !syncEnabled() && !guest;
+  if (box.hidden) return;
+  $("#account-email").textContent = guest
+    ? "Guest: saved on this device only"
+    : authMode === "clerk"
+      ? clerk?.user?.primaryEmailAddress?.emailAddress ?? "Signed in"
+      : `Test user: ${load("humanual.devUser", "")}`;
+  $("#manage-account").hidden = guest || authMode !== "clerk";
+  $("#sign-out").textContent = guest ? "Sign in" : "Sign out";
+  if (guest) setSyncStatus("");
+}
+
+// ---------- guests ----------
+//
+// When accounts are set up, people can sign in (synced across devices) or
+// continue as a guest (saved in this browser only). Guest data uses the same
+// browser keys as the app did before accounts existed, so signing in later
+// moves it into the account (adoptLegacyData).
+
+const GUEST_KEY = "humanual.guest";
+const isGuest = () => !uid && authMode !== "none";
+
+function continueAsGuest() {
+  try { localStorage.setItem(GUEST_KEY, "1"); } catch {}
+  enterAs(null);
+}
+
+function signInFromGuest() {
+  try { localStorage.removeItem(GUEST_KEY); } catch {}
+  location.reload();
 }
 
 async function signOut() {
+  if (isGuest()) return signInFromGuest();
   if (Object.keys(outbox).length) {
     await syncNow();
     if (Object.keys(outbox).length &&
@@ -439,6 +463,7 @@ function showSignIn() {
   $("#onboarding").hidden = true;
   $("#app").hidden = true;
   $("#signin").hidden = false;
+  $("#continue-guest").onclick = continueAsGuest;
   if (authMode === "clerk") {
     $("#dev-signin").hidden = true;
     clerk.mountSignIn($("#clerk-mount"));
@@ -544,7 +569,9 @@ function showOnboarding(prefillName = "") {
   $("#onboarding").hidden = false;
   $("#ob-storage").textContent = syncEnabled()
     ? "Your conversations and profile are saved to your account, so they're on your phone and your laptop."
-    : "Your conversations and profile are saved only in this browser.";
+    : isGuest()
+      ? "You're a guest, so your conversations and profile are saved only in this browser. Sign in any time to keep them on all your devices."
+      : "Your conversations and profile are saved only in this browser.";
   fillCoachPicker($("#ob-coach"), "coach", "junie");
   if (prefillName && !$("#ob-name").value) $("#ob-name").value = prefillName;
   $("#ob-name").focus();
@@ -560,13 +587,11 @@ $("#onboard-form").addEventListener("submit", (e) => {
     about: "",
     work: "",
     people: "",
-    accessCode: "",
     updated: Date.now(),
   };
   saveSettings();
   markDirty("profile", "me", { at: settings.updated });
   startApp();
-  if (accessCodeRequired) openSettings({ focusAccess: true });
 });
 
 // ---------- app shell ----------
@@ -925,12 +950,10 @@ async function requestReply() {
     scrollToBottom();
   };
 
-  const fail = (message, { access = false } = {}) => {
+  const fail = (message) => {
     mdNode.replaceChildren(el("p", { class: "error" }, [
       document.createTextNode(message),
-      access
-        ? el("button", { class: "btn", type: "button", text: "Open settings", onclick: () => openSettings({ focusAccess: true }) })
-        : el("button", { class: "btn", type: "button", text: "Try again", onclick: () => { li.remove(); requestReply(); } }),
+      el("button", { class: "btn", type: "button", text: "Try again", onclick: () => { li.remove(); requestReply(); } }),
     ]));
   };
 
@@ -951,7 +974,7 @@ async function requestReply() {
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      fail(data.error || `Something went wrong (${res.status}).`, { access: data.code === "access" });
+      fail(data.error || `Something went wrong (${res.status}).`);
       return;
     }
 
@@ -1150,19 +1173,15 @@ $("#new-chat").addEventListener("click", () => { showView("chat"); newConvo(); }
 
 // ---------- settings ----------
 
-function openSettings({ focusAccess = false } = {}) {
+function openSettings() {
   const form = $("#settings-form");
-  for (const k of ["name", "about", "work", "people", "accessCode"]) form.elements[k].value = settings[k] ?? "";
+  for (const k of ["name", "about", "work", "people"]) form.elements[k].value = settings[k] ?? "";
   fillCoachPicker($("#set-coach"), "coach", settings.coach);
   form.elements.style.value = settings.style;
-  const access = $("#access-field");
-  access.hidden = !accessCodeRequired && !settings.accessCode;
-  access.classList.toggle("flash", focusAccess);
   renderMemory();
   $("#settings").returnValue = "";
   closeSidebar();
   $("#settings").showModal();
-  if (focusAccess) form.elements.accessCode.focus();
 }
 
 $("#open-settings").addEventListener("click", () => openSettings());
@@ -1176,7 +1195,6 @@ $("#settings").addEventListener("close", () => {
     about: form.elements.about.value.trim(),
     work: form.elements.work.value.trim(),
     people: form.elements.people.value.trim(),
-    accessCode: form.elements.accessCode.value.trim(),
     coach: form.elements.coach.value || settings.coach,
     style: form.elements.style.value || settings.style,
     updated: Date.now(),
@@ -1518,12 +1536,6 @@ $("#script-form").addEventListener("submit", async (e) => {
       throw new Error("Couldn't reach Humanual. Check your connection and try again.");
     }
     const data = await res.json().catch(() => ({}));
-    if (data.code === "access") {
-      status.className = "status err";
-      status.textContent = data.error;
-      openSettings({ focusAccess: true });
-      return;
-    }
     if (data.crisis) {
       status.textContent = "";
       $("#script-crisis").hidden = false;
@@ -1726,10 +1738,6 @@ async function requestCard(entry) {
       throw new Error("Couldn't reach Humanual. Your entry is saved; try again when you're online.");
     }
     const data = await res.json().catch(() => ({}));
-    if (data.code === "access") {
-      openSettings({ focusAccess: true });
-      throw new Error(data.error);
-    }
     if (data.crisis) {
       outcome = "crisis";
       $("#journal-crisis").hidden = false;
@@ -1810,7 +1818,7 @@ async function startDemo() {
   }
   const now = Date.now();
   settings = {
-    ...demoData.profile, coach: "junie", style: "direct", accessCode: "", updated: now,
+    ...demoData.profile, coach: "junie", style: "direct", updated: now,
     memory: (demoData.memory ?? []).map((text) => ({ id: crypto.randomUUID(), text, at: now })),
   };
   // One past journal entry, one finished rehearsal in the sidebar, and two
@@ -1956,6 +1964,7 @@ $("#dev-signin").addEventListener("submit", (e) => {
   const id = $("#dev-user").value.trim();
   if (!/^[\w.@-]{1,64}$/.test(id)) return;
   save("humanual.devUser", id);
+  try { localStorage.removeItem(GUEST_KEY); } catch {}
   enterAs(`dev_${id}`);
 });
 $("#sign-out").addEventListener("click", signOut);
@@ -1972,22 +1981,30 @@ $("#manage-account").addEventListener("click", () => clerk?.openUserProfile());
   } catch {
     config = load("humanual.config", null); // offline: use what we saw last time
   }
-  accessCodeRequired = Boolean(config?.accessCodeRequired);
+  // The public demo address doesn't serve the full app (or answer the coach).
+  if (config?.fullApp === false) return location.replace("/demo");
   authMode = config?.auth ?? "none";
 
   if (authMode === "none") return enterAs(null);
+  const guest = load(GUEST_KEY, 0) === 1;
 
   if (authMode === "clerk") {
     try {
       clerk = await loadClerk(config.clerkPublishableKey);
     } catch {
-      // Offline or sign-in service unreachable: open the last account's saved copy.
+      // Offline or sign-in service unreachable: open the last account's saved
+      // copy, or the guest copy. Otherwise guests can still get in.
       const last = load("humanual.lastUser", null);
       if (last) return enterAs(last);
+      if (guest) return enterAs(null);
       $("#signin-error").hidden = false;
       return showSignIn();
     }
-    if (clerk.user) return enterAs(clerk.user.id, { prefillName: clerk.user.firstName ?? "" });
+    if (clerk.user) {
+      try { localStorage.removeItem(GUEST_KEY); } catch {}
+      return enterAs(clerk.user.id, { prefillName: clerk.user.firstName ?? "" });
+    }
+    if (guest) return enterAs(null);
     showSignIn();
     clerk.addListener(({ user }) => {
       if (user && !uid) enterAs(user.id, { prefillName: user.firstName ?? "" });
@@ -1998,5 +2015,6 @@ $("#manage-account").addEventListener("click", () => clerk?.openUserProfile());
   // Dev sign-in (local testing only).
   const devUser = load("humanual.devUser", "");
   if (devUser) return enterAs(`dev_${devUser}`);
+  if (guest) return enterAs(null);
   showSignIn();
 })();
