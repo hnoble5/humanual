@@ -9,7 +9,9 @@
     "directory": "./public",
     "binding": "ASSETS",
     "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*"]
+    // The Worker sees every request so it can redirect the old addresses
+    // (src/worker.ts, MOVED_HOSTS); it hands everything else to the static files.
+    "run_worker_first": true
   },
   // Profiles, conversations, and saved scripts for signed-in users (see migrations/).
   "d1_databases": [
@@ -18,13 +20,18 @@
   // Lets src/prompt.ts import the Markdown prompt files as plain text.
   "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "observability": { "enabled": true },
-  // Two addresses, one Worker:
-  //  - coach.: public, for the portfolio demo at /demo. The coach and sync
-  //    refuse to run there, so nobody can spend API credit from it.
-  //  - humanual.: the real app, private behind Cloudflare Access (README, "Private app").
+  // One Worker, several addresses (README, "Addresses"):
+  //  - humanual.app: the real app, private behind Cloudflare Access until launch.
+  //  - demo.humanual.app: public demo at /demo. The coach and sync refuse to
+  //    run there, so nobody can spend API credit from it.
+  //  - www.humanual.app and the old elitetestautomation.com addresses only
+  //    redirect to the two above.
   "routes": [
-    { "pattern": "coach.elitetestautomation.com", "custom_domain": true },
-    { "pattern": "humanual.elitetestautomation.com", "custom_domain": true }
+    { "pattern": "humanual.app", "custom_domain": true },
+    { "pattern": "www.humanual.app", "custom_domain": true },
+    { "pattern": "demo.humanual.app", "custom_domain": true },
+    { "pattern": "humanual.elitetestautomation.com", "custom_domain": true },
+    { "pattern": "coach.elitetestautomation.com", "custom_domain": true }
   ],
   // Otherwise `wrangler dev` presents requests as coming from the route's host,
   // which turns off the localhost-only dev sign-in (src/auth.ts).
@@ -33,6 +40,6 @@
   "workers_dev": false,
   // Hosts that serve the full app; everything else gets only the demo (src/worker.ts).
   // USER_MONTHLY_LIMIT_USD: each signed-in user's monthly AI allowance (src/usage.ts).
-  "vars": { "APP_HOSTS": "humanual.elitetestautomation.com", "USER_MONTHLY_LIMIT_USD": "5" },
+  "vars": { "APP_HOSTS": "humanual.app", "USER_MONTHLY_LIMIT_USD": "5" },
   "preview_urls": false
 }

@@ -435,8 +435,24 @@ export default {
   },
 } satisfies ExportedHandler<Env>;
 
+/**
+ * Addresses that only redirect: www, and where Humanual lived before it had
+ * its own domain. Old links and installed apps keep working.
+ */
+const MOVED_HOSTS: Record<string, string> = {
+  "www.humanual.app": "humanual.app",
+  "humanual.elitetestautomation.com": "humanual.app",
+  "coach.elitetestautomation.com": "demo.humanual.app",
+};
+
 async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+  const movedTo = MOVED_HOSTS[url.hostname];
+  if (movedTo) {
+    url.hostname = movedTo;
+    // 308 keeps the method and body, so a stray API call isn't turned into a GET.
+    return Response.redirect(url.toString(), request.method === "GET" || request.method === "HEAD" ? 301 : 308);
+  }
   if (url.pathname === "/api/chat") {
     if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
     return handleChat(request, env);
