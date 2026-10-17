@@ -86,6 +86,7 @@
 
       <button class="btn primary big" type="submit">Start</button>
       <p class="fineprint">You can add more about yourself (work, people you deal with) in Settings any time. It helps the coach give specific advice.</p>
+      <p class="fineprint account-line" data-account-line hidden><span data-account-email></span> <button class="linkback" type="button" data-sign-out>Sign out</button></p>
     </form>
   </main>
 
@@ -114,13 +115,13 @@
     </header>
 
     <nav class="tabs" aria-label="Tools">
-      <button class="view-btn" data-view="chat" aria-current="page">Coach chat</button>
-      <button class="view-btn" data-view="scripts">Scripts</button>
+      <button class="view-btn" data-view="scripts" aria-current="page">Scripts</button>
+      <button class="view-btn" data-view="chat">Coach chat</button>
       <button class="view-btn" data-view="journal">Journal</button>
     </nav>
 
     <!-- Coach chat -->
-    <section class="main chat-panel" id="chat-view">
+    <section class="main chat-panel" id="chat-view" hidden>
       <aside id="sidebar" class="sidebar" aria-label="Conversations">
         <div class="sidebar-top">
           <p class="label">Conversations</p>
@@ -196,7 +197,7 @@
     </section>
 
     <!-- Scripts -->
-    <section class="main" id="scripts-view" hidden>
+    <section class="main" id="scripts-view">
       <div class="panel">
         <div class="intro">
           <h2>Get a script</h2>
@@ -330,6 +331,11 @@
         <ul class="memory-list" id="memory-list"></ul>
         <p class="muted small" id="memory-empty">Nothing yet. As you chat and journal, what you share shows up here.</p>
         <div><button class="btn ghost danger small" type="button" id="memory-clear" hidden>Forget everything</button></div>
+      </div>
+
+      <div class="account-line sheet-account" data-account-line hidden>
+        <span class="muted small" data-account-email></span>
+        <button class="btn ghost" type="button" data-sign-out>Sign out</button>
       </div>
 
       <div class="sheet-actions">
