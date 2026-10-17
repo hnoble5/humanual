@@ -8,6 +8,7 @@ import { JournalSchema, journalRequest } from "./journal";
 import { MAX_MEMORIES, MAX_MEMORY_CHARS, MEMORY_SYSTEM, MemorySchema, memoryRequest } from "./memory";
 import { authMode, getUserId } from "./auth";
 import { deleteAll, StorageFullError, sync, SyncError } from "./storage";
+import { anthropicUserId, monthlyLimitMicros, recordUsage, spentThisMonth, type TokenUsage } from "./usage";
 
 // Model rule: anything that works with the user's personal details (their
 // profile, situations, people, memory) uses Opus, for quality. Only work that
@@ -108,9 +109,9 @@ const SIGNIN_ERROR = { error: "Please sign in again.", code: "signin" };
 /**
  * True when this address serves the full app: one of APP_HOSTS (set in
  * wrangler.jsonc), or localhost for development. Those hosts sit behind
- * Cloudflare Access, which decides who gets in, so the coach answers both
- * guests and signed-in users there. Every other address (the public demo at
- * coach.) gets no AI at all, so nobody can spend the API credit from outside.
+ * Cloudflare Access, which decides who gets in. Every other address (the
+ * public demo at coach.) gets no AI at all, so nobody can spend the API credit
+ * from outside.
  */
 function isAppHost(request: Request, env: Env) {
   const host = new URL(request.url).hostname;
@@ -124,11 +125,55 @@ async function requireUser(request: Request, env: Env): Promise<{ userId: string
   return userId ? { userId } : json(SIGNIN_ERROR, 401);
 }
 
-/** The coach endpoints: open to guests and signed-in users, on app hosts only. */
-async function guardModel(request: Request, env: Env): Promise<Response | null> {
+/** Who a coach call is for: their sign-in id, and the hashed id Anthropic sees. */
+interface ModelUser {
+  userId: string;
+  metadata: { user_id: string };
+}
+
+const COACH_SIGNIN_ERROR = { error: "Sign in to talk with the coach.", code: "signin" };
+const LIMIT_ERROR = {
+  error: "You've used this month's coaching. It resets on the 1st.",
+  code: "limit",
+};
+
+/**
+ * The coach endpoints: app hosts only, signed-in users only, and only while the
+ * user is under their monthly allowance. Every AI call is tied to one account,
+ * so usage can be tracked, capped and (later) billed per user. The one
+ * exception is local development with no sign-in set up at all, which runs as
+ * a single "local" user.
+ */
+async function guardModel(request: Request, env: Env): Promise<ModelUser | Response> {
   if (!env.ANTHROPIC_API_KEY) return json({ error: "The server's API key isn't set up yet." }, 500);
   if (!isAppHost(request, env)) return json({ error: "The coach only answers in the Humanual app." }, 403);
-  return null;
+
+  let userId: string | null;
+  if (authMode(request, env) === "none") {
+    const host = new URL(request.url).hostname;
+    if (host !== "localhost" && host !== "127.0.0.1") {
+      return json({ error: "Sign-in isn't set up on this server, so the coach is off." }, 501);
+    }
+    userId = "local";
+  } else {
+    userId = await getUserId(request, env);
+    if (!userId) return json(COACH_SIGNIN_ERROR, 401);
+  }
+
+  if (env.DB && (await spentThisMonth(env.DB, userId)) >= monthlyLimitMicros(env)) {
+    return json(LIMIT_ERROR, 429);
+  }
+  return { userId, metadata: { user_id: await anthropicUserId(userId) } };
+}
+
+/** Adds a response's tokens to the user's monthly total. Never fails the reply. */
+async function track(env: Env, user: ModelUser, usage: TokenUsage | null | undefined) {
+  if (!env.DB || !usage) return;
+  try {
+    await recordUsage(env.DB, user.userId, usage);
+  } catch (err) {
+    console.error("usage record failed", err);
+  }
 }
 
 async function handleSync(request: Request, env: Env): Promise<Response> {
@@ -154,8 +199,8 @@ async function handleSync(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleChat(request: Request, env: Env): Promise<Response> {
-  const blocked = await guardModel(request, env);
-  if (blocked) return blocked;
+  const user = await guardModel(request, env);
+  if (user instanceof Response) return user;
 
   let req: ChatRequest;
   try {
@@ -186,6 +231,7 @@ ${turnReminder(req)}` : turnReminder(req) },
     // If a safety classifier declines, retry server-side on Anthropic's recommended fallback model.
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
+    metadata: user.metadata,
     system: buildSystem(req),
     messages,
   });
@@ -194,10 +240,18 @@ ${turnReminder(req)}` : turnReminder(req) },
   const body = new ReadableStream({
     async start(controller) {
       const send = (event: object) => controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+      // Token counts as the stream reports them, so usage is still recorded
+      // when the browser disconnects partway (the tokens are billed either way).
+      const usage: TokenUsage = {};
+      const merge = (u: TokenUsage | null | undefined) => {
+        for (const [k, v] of Object.entries(u ?? {})) if (typeof v === "number") (usage as any)[k] = v;
+      };
       try {
         if (crisis) send({ t: "crisis" });
         for await (const event of stream) {
-          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+          if (event.type === "message_start") merge(event.message.usage);
+          else if (event.type === "message_delta") merge(event.usage);
+          else if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
             send({ t: "text", v: event.delta.text });
           }
         }
@@ -213,6 +267,8 @@ ${turnReminder(req)}` : turnReminder(req) },
           send({ t: "error", message: friendlyError(err) });
         }
       } finally {
+        // Before closing: once the response ends, the Worker may stop running.
+        if (Object.keys(usage).length) await track(env, user, usage);
         try {
           controller.close();
         } catch {
@@ -234,8 +290,8 @@ ${turnReminder(req)}` : turnReminder(req) },
 }
 
 async function handleScript(request: Request, env: Env): Promise<Response> {
-  const blocked = await guardModel(request, env);
-  if (blocked) return blocked;
+  const user = await guardModel(request, env);
+  if (user instanceof Response) return user;
 
   let req;
   try {
@@ -260,9 +316,11 @@ async function handleScript(request: Request, env: Env): Promise<Response> {
       output_config: { effort: "medium", format: betaZodOutputFormat(ScriptSchema) },
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
+      metadata: user.metadata,
       system: buildSystem({ ...req, mode: "everyday" }),
       messages: [{ role: "user", content: scriptRequest(req.channel, req.task, req.details) }],
     });
+    await track(env, user, response.usage);
     if (response.stop_reason === "refusal") {
       return json({ error: "The coach couldn't write a script for that one. Try rewording it." }, 422);
     }
@@ -277,8 +335,8 @@ async function handleScript(request: Request, env: Env): Promise<Response> {
 }
 
 async function handleJournal(request: Request, env: Env): Promise<Response> {
-  const blocked = await guardModel(request, env);
-  if (blocked) return blocked;
+  const user = await guardModel(request, env);
+  if (user instanceof Response) return user;
 
   let req;
   try {
@@ -302,9 +360,11 @@ async function handleJournal(request: Request, env: Env): Promise<Response> {
       output_config: { effort: "medium", format: betaZodOutputFormat(JournalSchema) },
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
+      metadata: user.metadata,
       system: buildSystem({ ...req, mode: "journal" }),
       messages: [{ role: "user", content: journalRequest(req.text, req.replaying) }],
     });
+    await track(env, user, response.usage);
     if (response.stop_reason === "refusal") {
       return json({ error: "The coach couldn't reply to that one. Try rewording it." }, 422);
     }
@@ -320,8 +380,8 @@ async function handleJournal(request: Request, env: Env): Promise<Response> {
 
 // Updates the list of things the coach remembers after a chat reply or journal entry.
 async function handleRemember(request: Request, env: Env): Promise<Response> {
-  const blocked = await guardModel(request, env);
-  if (blocked) return blocked;
+  const user = await guardModel(request, env);
+  if (user instanceof Response) return user;
 
   let memories: string[], exchange: string, today: string;
   try {
@@ -346,9 +406,11 @@ async function handleRemember(request: Request, env: Env): Promise<Response> {
       output_config: { effort: "low", format: betaZodOutputFormat(MemorySchema) },
       betas: ["server-side-fallback-2026-07-01"],
       fallbacks: "default",
+      metadata: user.metadata,
       system: MEMORY_SYSTEM,
       messages: [{ role: "user", content: memoryRequest(memories, exchange, today) }],
     });
+    await track(env, user, response.usage);
     if (response.stop_reason === "refusal" || !response.parsed_output) return json({ memory: memories });
     const updated = response.parsed_output.memories
       .map((m) => m.trim().slice(0, MAX_MEMORY_CHARS))

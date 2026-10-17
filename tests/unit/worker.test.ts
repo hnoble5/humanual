@@ -4,6 +4,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { createTestDb } from "./d1-shim.ts";
+import { recordUsage } from "../../src/usage.ts";
 
 // The Worker imports the prompt Markdown files as text (a wrangler rule), which
 // Node can't do on its own, so bundle it the same way first. The bundle goes
@@ -40,20 +42,49 @@ test("the coach never answers on the public demo address", async () => {
   }
 });
 
-test("guests reach the coach on the app address with no code or sign-in", async () => {
-  // An invalid coach gets a 400 from input checking, which proves the request
-  // got past every gate without calling the AI.
-  for (const path of AI_PATHS.slice(0, 3)) {
-    const res = await worker.fetch(post(APP, path, { ...chat, coach: "nobody" }), env());
-    assert.equal(res.status, 400, path);
+const CLERK = { CLERK_SECRET_KEY: "sk_test_x", CLERK_PUBLISHABLE_KEY: "pk_test_x" };
+
+test("the coach needs a signed-in user on the app address", async () => {
+  for (const path of AI_PATHS) {
+    const res = await worker.fetch(post(APP, path, chat), env(CLERK));
+    assert.equal(res.status, 401, path);
+    assert.equal((await res.json()).code, "signin");
   }
 });
 
-test("the app address list is case- and space-tolerant, and localhost always works", async () => {
-  const e = env({ APP_HOSTS: " Other.example.com , APP.example.com " });
-  assert.equal((await worker.fetch(post(APP, "/api/chat", { ...chat, coach: "nobody" }), e)).status, 400);
-  const local = await worker.fetch(post("localhost", "/api/chat", { ...chat, coach: "nobody" }), env({ APP_HOSTS: "" }));
-  assert.equal(local.status, 400);
+test("with no sign-in set up, the coach only runs on localhost", async () => {
+  const res = await worker.fetch(post(APP, "/api/chat", chat), env());
+  assert.equal(res.status, 501);
+});
+
+test("a signed-in user gets past every gate", async () => {
+  // An invalid coach gets a 400 from input checking, which proves the request
+  // got past every gate without calling the AI.
+  const dev = env({ DEV_AUTH: "true", DB: createTestDb() });
+  for (const path of AI_PATHS.slice(0, 3)) {
+    const req = post("localhost", path, { ...chat, coach: "nobody" });
+    req.headers.set("x-dev-user", "alice");
+    assert.equal((await worker.fetch(req, dev)).status, 400, path);
+  }
+});
+
+test("a user over their monthly allowance is stopped before the AI is called", async () => {
+  const db = createTestDb();
+  // $4 + $2 of output: over a $5 allowance.
+  await recordUsage(db, "dev_alice", { output_tokens: 200_000 });
+  await recordUsage(db, "dev_alice", { output_tokens: 100_000 });
+  const e = env({ DEV_AUTH: "true", DB: db, USER_MONTHLY_LIMIT_USD: "5" });
+  for (const path of AI_PATHS) {
+    const req = post("localhost", path, chat);
+    req.headers.set("x-dev-user", "alice");
+    const res = await worker.fetch(req, e);
+    assert.equal(res.status, 429, path);
+    assert.equal((await res.json()).code, "limit");
+  }
+  // Someone else on the same server is unaffected.
+  const bob = post("localhost", "/api/chat", { ...chat, coach: "nobody" });
+  bob.headers.set("x-dev-user", "bob");
+  assert.equal((await worker.fetch(bob, e)).status, 400);
 });
 
 test("config tells the page whether this address serves the full app", async () => {
@@ -69,13 +100,12 @@ test("sync needs a signed-in user, and never runs on the demo address", async ()
   const anon = await worker.fetch(post("localhost", "/api/sync", { since: 0 }), dev);
   assert.equal(anon.status, 401);
   assert.equal((await anon.json()).code, "signin");
-  const clerk = env({ CLERK_SECRET_KEY: "sk_test_x", CLERK_PUBLISHABLE_KEY: "pk_test_x" });
-  assert.equal((await worker.fetch(post(DEMO_HOST, "/api/sync", { since: 0 }), clerk)).status, 403);
+  assert.equal((await worker.fetch(post(DEMO_HOST, "/api/sync", { since: 0 }), env(CLERK))).status, 403);
 });
 
 test("inherited property names are rejected as unknown, not a crash", async () => {
   for (const [field, value] of [["coach", "constructor"], ["coach", "__proto__"], ["mode", "toString"]]) {
-    const res = await worker.fetch(post(APP, "/api/chat", { ...chat, [field]: value }), env());
+    const res = await worker.fetch(post("localhost", "/api/chat", { ...chat, [field]: value }), env());
     assert.equal(res.status, 400, `${field}=${value}`);
     assert.match((await res.json()).error, /Unknown/);
   }
