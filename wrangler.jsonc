@@ -45,7 +45,7 @@
   // day, and GUEST_DAILY_LIMIT_USD of AI cost per day across all guests.
   "vars": {
     "APP_HOSTS": "humanual.app",
-    "USER_MONTHLY_LIMIT_USD": "5",
+    "USER_MONTHLY_LIMIT_USD": "1",
     "GUEST_MESSAGE_LIMIT": "5",
     "GUEST_IP_DAILY_MESSAGES": "15",
     "GUEST_DAILY_LIMIT_USD": "2"
