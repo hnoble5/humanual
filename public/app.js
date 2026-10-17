@@ -1884,10 +1884,26 @@ const DEMO_OFF_SCRIPT =
 
 const CHIP_LABELS = { hint: "Hint", pause: "Pause", stop: "Stop & get feedback" };
 
+// The "back to elitetestautomation.com" link is only for visitors who came
+// from there (a link with ?ref=eta, or that site as the referrer). Remembered
+// for the tab, so it survives the demo's reload-to-reset.
+function cameFromPortfolio() {
+  const key = "humanual.fromPortfolio";
+  let from = new URLSearchParams(location.search).get("ref") === "eta";
+  try { from ||= /(^|\.)elitetestautomation\.com$/.test(new URL(document.referrer).hostname); } catch {}
+  try {
+    if (from) sessionStorage.setItem(key, "1");
+    return from || sessionStorage.getItem(key) === "1";
+  } catch {
+    return from;
+  }
+}
+
 async function startDemo() {
   document.body.classList.add("demo");
   document.title = "Humanual demo";
   $("#demo-bar").hidden = false;
+  $("[data-testid=demo-back-link]").hidden = !cameFromPortfolio();
   try {
     demoData = await (await fetch("/demo/samples.json")).json();
   } catch {

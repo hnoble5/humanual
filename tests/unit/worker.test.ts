@@ -117,3 +117,20 @@ test("unexpected errors come back as JSON", async () => {
   assert.equal(res.status, 500);
   assert.match((await res.json()).error, /Something went wrong/);
 });
+
+test("old and www addresses redirect to humanual.app, keeping the path", async () => {
+  const cases = [
+    ["https://www.humanual.app/scripts?x=1", "https://humanual.app/scripts?x=1"],
+    ["https://humanual.elitetestautomation.com/", "https://humanual.app/"],
+    ["https://coach.elitetestautomation.com/demo", "https://demo.humanual.app/demo"],
+  ];
+  for (const [from, to] of cases) {
+    const res = await worker.fetch(new Request(from), env());
+    assert.equal(res.status, 301, from);
+    assert.equal(res.headers.get("location"), to, from);
+  }
+  const post = await worker.fetch(new Request("https://humanual.elitetestautomation.com/api/chat", { method: "POST" }), env());
+  assert.equal(post.status, 308);
+  // The real addresses are served, not redirected.
+  assert.equal((await worker.fetch(new Request("https://humanual.app/"), env({ APP_HOSTS: "humanual.app" }))).status, 200);
+});

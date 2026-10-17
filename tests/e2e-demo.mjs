@@ -21,13 +21,13 @@ const browser = await chromium.launch({ channel: "chrome", headless: true });
 const errors = [];
 const apiCalls = [];
 
-async function open(viewport) {
+async function open(viewport, path = "/demo") {
   const ctx = await browser.newContext({ viewport });
   const page = await ctx.newPage();
   page.on("pageerror", (e) => errors.push(e.message));
   page.on("console", (m) => { if (m.type() === "error") errors.push(`console: ${m.text()}`); });
   page.on("request", (r) => { if (new URL(r.url()).pathname.startsWith("/api/")) apiCalls.push(r.url()); });
-  await page.goto(`${U}/demo`);
+  await page.goto(`${U}${path}`);
   await page.waitForSelector("#app:not([hidden])");
   return { ctx, page };
 }
@@ -37,11 +37,16 @@ const waitForReplies = (page, n) =>
   page.waitForFunction((n) => document.querySelectorAll("#messages .msg.coach").length === n && !document.querySelector("#send.stop"), n, { timeout: 15000 });
 
 try {
-  const { ctx, page } = await open({ width: 1280, height: 800 });
+  // Arrives the way the portfolio links here, so the back link shows.
+  const { ctx, page } = await open({ width: 1280, height: 800 }, "/demo?ref=eta");
 
   // Banner and start screen.
   ok("demo banner shows", await page.isVisible("[data-testid=demo-banner]"));
   ok("back link goes to the portfolio", (await page.getAttribute("[data-testid=demo-back-link]", "href")) === "https://elitetestautomation.com/#portfolio");
+  ok("back link shows for portfolio visitors", await page.isVisible("[data-testid=demo-back-link]"));
+  const direct = await open({ width: 1280, height: 800 });
+  ok("back link hidden for everyone else", !(await direct.page.isVisible("[data-testid=demo-back-link]")));
+  await direct.ctx.close();
   ok("no sign-in or welcome screen", !(await page.isVisible("#signin")) && !(await page.isVisible("#onboarding")));
   const sampleCount = await page.$$eval("#sample-list .sample", (n) => n.length);
   ok("start screen lists every sample", sampleCount === data.conversations.length, `${sampleCount}`);

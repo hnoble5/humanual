@@ -45,7 +45,7 @@ Run the unit tests any time: `npm run test:unit`. Run the browser test with the 
 
 ## Public demo
 
-`/demo` (live at https://coach.elitetestautomation.com/demo, linked from the elitetestautomation.com portfolio) runs the same app on recorded replies: no sign-in, no API calls, nothing saved, and a reload resets it. Visitors tap sample conversations and example scripts; anything else gets a note that the live app answers it.
+`/demo` (live at https://demo.humanual.app/demo, linked from the elitetestautomation.com portfolio) runs the same app on recorded replies: no sign-in, no API calls, nothing saved, and a reload resets it. Visitors tap sample conversations and example scripts; anything else gets a note that the live app answers it.
 
 After changing the prompts, re-record so the demo matches (costs about 30 API requests): `npm run dev`, then `npm run demo:record`, then `npm run test:demo`.
 
@@ -84,38 +84,47 @@ npx wrangler d1 execute humanual --remote --command \
    ```sh
    npx wrangler secret put CLERK_PUBLISHABLE_KEY
    npx wrangler secret put CLERK_SECRET_KEY
-   npx wrangler secret put CLERK_AUTHORIZED_PARTIES   # e.g. https://humanual.heathermnobles.workers.dev
+   npx wrangler secret put CLERK_AUTHORIZED_PARTIES   # https://humanual.app,https://demo.humanual.app
    ```
 4. In Clerk, add your site's URL to the allowed origins, then `npm run deploy`.
 
 Existing testers' browser data moves into their account the first time they sign in.
 
-## Private app (Cloudflare Access)
+## Addresses
 
-The Worker answers on two addresses (see `routes` in `wrangler.jsonc`):
+Humanual has its own domain, `humanual.app`, registered with Cloudflare. One Worker answers on every address (see `routes` in `wrangler.jsonc`):
 
 | Address | Who can reach it | What it's for |
 |---|---|---|
-| `coach.elitetestautomation.com` | Anyone | The portfolio demo at `/demo`. Any other page sends visitors to the demo, and the coach and sync refuse to run here, so strangers can't spend API credit. |
-| `humanual.elitetestautomation.com` | Only people on the Access list | The real app. |
+| `humanual.app` | Only people on the Access list (until launch) | The real app. |
+| `demo.humanual.app` | Anyone | The public demo at `/demo`. Any other page sends visitors to the demo, and the coach and sync refuse to run here, so strangers can't spend API credit. |
+| `www.humanual.app` | Anyone | Redirects to `humanual.app`. |
+| `humanual.elitetestautomation.com`, `coach.elitetestautomation.com` | Anyone | Old addresses. Redirect (301, same path) to `humanual.app` and `demo.humanual.app` (`MOVED_HOSTS` in `src/worker.ts`). |
 
 The `*.workers.dev` address is turned off (`"workers_dev": false`), because it would skip Access.
 
-### Setting it up (one time)
+Linking from elitetestautomation.com: point at `https://humanual.app` and `https://demo.humanual.app/demo?ref=eta`. The demo shows its "back to elitetestautomation.com" link only to visitors who arrive with `?ref=eta` or from that site.
 
-1. `npm run deploy`. Wrangler adds `humanual.elitetestautomation.com` as a custom domain and creates its DNS record and certificate. It can take a few minutes to start answering.
-2. In the Cloudflare dashboard, open **Zero Trust**. The first time, pick a team name; the free plan covers a small team.
-3. Under **Settings → Authentication**, make sure **One-time PIN** is on (Access emails a login code; no passwords to manage).
-4. Under **Access → Applications**, choose **Add an application → Self-hosted**:
-   - Domain: `humanual.elitetestautomation.com`, path left blank (the whole site, including `/api`).
+### Private app (Cloudflare Access)
+
+Until the guest trial and payments launch, `humanual.app` stays private. Set this up **before** the first deploy that adds the domain, so the app is never briefly public:
+
+1. In the Cloudflare dashboard, open **Zero Trust**. Under **Settings → Authentication**, make sure **One-time PIN** is on (Access emails a login code; no passwords to manage).
+2. Under **Access → Applications**, choose **Add an application → Self-hosted**:
+   - Domain: `humanual.app`, path left blank (the whole site, including `/api`).
    - Session duration: something long, like 1 month, so the installed app doesn't keep asking you to log in.
    - Policy: action **Allow**, include **Emails**, and list the addresses allowed in.
-5. Open `https://humanual.elitetestautomation.com` in a private window. You should get the Cloudflare login page first, and the app only after entering the emailed code.
-6. Accounts (Clerk) are still what sync your data between devices. Add the new address to both lists:
-   - `npx wrangler secret put CLERK_AUTHORIZED_PARTIES`, with both origins, comma-separated: `https://humanual.elitetestautomation.com,https://coach.elitetestautomation.com`
-   - In Clerk, add `https://humanual.elitetestautomation.com` to the allowed origins.
+3. `npm run deploy`. Wrangler adds the custom domains and creates their DNS records and certificates. It can take a few minutes to start answering.
+4. Open `https://humanual.app` in a private window. You should get the Cloudflare login page first, and the app only after entering the emailed code.
+5. Accounts (Clerk) are still what sync your data between devices; see "Moving sign-in to humanual.app" below.
 
 When the Access session runs out, the app's requests fail with "Couldn't reach Humanual" until you reload the page and log in again.
+
+### Moving sign-in to humanual.app
+
+- **Production Clerk instance** (publishable key starts `pk_live_`): Clerk dashboard → **Domains** → **Configure** next to the primary domain → **Danger zone → Change domain** → `humanual.app`. Add the DNS records Clerk lists in Cloudflare (DNS records for `humanual.app`, proxy **off**), and wait for Clerk to show them verified. The change creates a **new publishable key**: run `npx wrangler secret put CLERK_PUBLISHABLE_KEY` with it, then deploy, or sign-in breaks. If Google sign-in is on, update its redirect URI in Google Cloud too. People sign in again once; their data is kept.
+- **Development instance** (`pk_test_`): no domain to change. Add `https://humanual.app` and `https://demo.humanual.app` to the allowed origins. Switch to a production instance on `humanual.app` before taking payments.
+- Either way: `npx wrangler secret put CLERK_AUTHORIZED_PARTIES` with `https://humanual.app,https://demo.humanual.app`.
 
 ## Notes
 

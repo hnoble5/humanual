@@ -7,7 +7,7 @@ interface Env {
   ANTHROPIC_API_KEY: string;
   /**
    * Comma-separated hostnames that serve the full app (behind Cloudflare
-   * Access), e.g. "humanual.elitetestautomation.com". Set in wrangler.jsonc.
+   * Access), e.g. "humanual.app". Set in wrangler.jsonc.
    * Other hosts get the demo only and no AI. Localhost always counts.
    */
   APP_HOSTS?: string;
