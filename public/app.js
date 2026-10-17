@@ -131,6 +131,10 @@ function loadUserData() {
 // Per item, the newest edit wins.
 
 let authMode = "none";   // "clerk" | "dev" | "none" (no accounts: browser only)
+let billingOn = false;   // payments set up on the server: Settings shows a Plan section
+// "success" or "cancel" when Stripe Checkout just sent the user back here.
+// Read once at load, before showView() rewrites the address.
+let checkoutReturn = new URLSearchParams(location.search).get("billing");
 let clerk = null;        // Clerk instance when authMode is "clerk"
 let outbox = {};         // "kind:id" -> { updated_at, deleted }
 let syncCursor = 0;
@@ -682,6 +686,7 @@ function startApp() {
   // #journal in the address opens that one.
   const hashView = location.hash === "#chat" || location.hash === "#journal" ? location.hash.slice(1) : null;
   showView(hashView ?? (DEMO ? "chat" : "scripts"));
+  returnFromCheckout();
 }
 
 function newConvo() {
@@ -1029,10 +1034,12 @@ async function requestReply() {
     scrollToBottom();
   };
 
-  const fail = (message) => {
+  const fail = (message, { upgrade = false } = {}) => {
     mdNode.replaceChildren(el("p", { class: "error" }, [
       document.createTextNode(message),
-      el("button", { class: "btn", type: "button", text: "Try again", onclick: () => { li.remove(); requestReply(); } }),
+      upgrade
+        ? el("button", { class: "btn primary", type: "button", text: "See plans", onclick: () => openSettings({ plan: true }) })
+        : el("button", { class: "btn", type: "button", text: "Try again", onclick: () => { li.remove(); requestReply(); } }),
     ]));
   };
 
@@ -1053,7 +1060,7 @@ async function requestReply() {
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      fail(data.error || `Something went wrong (${res.status}).`);
+      fail(data.error || `Something went wrong (${res.status}).`, { upgrade: data.upgrade === true && billingOn });
       return;
     }
 
@@ -1252,7 +1259,7 @@ $("#new-chat").addEventListener("click", () => { showView("chat"); newConvo(); }
 
 // ---------- settings ----------
 
-function openSettings() {
+function openSettings({ plan = false, notice = "" } = {}) {
   const form = $("#settings-form");
   for (const k of ["name", "about", "work", "people"]) form.elements[k].value = settings[k] ?? "";
   fillCoachPicker($("#set-coach"), "coach", settings.coach);
@@ -1261,6 +1268,132 @@ function openSettings() {
   $("#settings").returnValue = "";
   closeSidebar();
   $("#settings").showModal();
+  const showPlan = billingOn && syncEnabled() && !isGuest();
+  $("#plan-field").hidden = !showPlan;
+  if (showPlan) {
+    loadPlan({ notice });
+    if (plan) $("#plan-field").scrollIntoView({ block: "start" });
+  }
+}
+
+// ---------- plan (payments) ----------
+// The server does the work: /api/billing says which plan the user is on,
+// /api/billing/checkout and /api/billing/portal return Stripe pages to go to.
+
+const money = (cents, currency = "usd") =>
+  new Intl.NumberFormat([], { style: "currency", currency, minimumFractionDigits: cents % 100 ? 2 : 0 }).format(cents / 100);
+const longDate = (ms) => new Date(ms).toLocaleDateString([], { year: "numeric", month: "long", day: "numeric" });
+
+let planRequest = 0;
+
+async function loadPlan({ refresh = false, notice = "" } = {}) {
+  const ticket = ++planRequest;
+  const body = $("#plan-body");
+  if (!body.dataset.loaded) body.replaceChildren(el("p", { class: "muted small", text: "Loading your plan…" }));
+  try {
+    const res = await fetch(`/api/billing${refresh ? "?refresh=1" : ""}`, { headers: await authHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (ticket !== planRequest) return null;
+    if (!res.ok) throw new Error(data.error || "Couldn't load your plan.");
+    renderPlan(data, notice);
+    body.dataset.loaded = "1";
+    return data;
+  } catch (err) {
+    if (ticket !== planRequest) return null;
+    body.replaceChildren(el("p", { class: "muted small", text: navigator.onLine ? err.message : "You're offline. Your plan shows here when you're back online." }));
+    return null;
+  }
+}
+
+function renderPlan(p, notice = "") {
+  const body = $("#plan-body");
+  const parts = [];
+  if (notice) parts.push(el("p", { class: "plan-note", text: notice }));
+
+  const used = `You've used ${p.usedPercent}% of this month's coaching. It resets on the 1st.`;
+  const manage = (label = "Manage billing") =>
+    el("button", { class: "btn", type: "button", text: label, onclick: (e) => goToBilling(e.currentTarget, "/api/billing/portal") });
+
+  if (p.plan === "founding") {
+    const price = p.plans?.find((x) => x.interval === p.interval);
+    parts.push(el("p", {}, [el("strong", { text: "Founding member" }), price ? ` · ${money(price.amount, price.currency)} a ${p.interval}` : ""]));
+    if (p.pastDue) {
+      parts.push(el("p", { class: "plan-note warn", text: "Your last payment didn't go through. Update your card under Manage billing to keep your plan." }));
+    } else if (p.periodEnd) {
+      parts.push(el("p", { class: "muted small", text: p.cancelAtPeriodEnd
+        ? `Your plan is canceled. You keep it until ${longDate(p.periodEnd)}, then you're on the free plan.`
+        : `Renews on ${longDate(p.periodEnd)}. Your price stays the same for as long as you're a member.` }));
+    }
+    parts.push(el("p", { class: "muted small", text: used }));
+    parts.push(el("div", { class: "plan-buttons" }, [manage()]));
+    parts.push(el("p", { class: "fineprint", text: "Change between monthly and yearly, update your card, see receipts, or cancel. This opens Stripe, our payment provider." }));
+  } else {
+    parts.push(el("p", {}, [el("strong", { text: "Free plan" })]));
+    parts.push(el("p", { class: "muted small", text: used }));
+    const month = p.plans?.find((x) => x.plan === "monthly");
+    const year = p.plans?.find((x) => x.plan === "yearly");
+    if (month || year) {
+      parts.push(el("p", { text: "Become a founding member for more coaching each month. Founding members keep their price for as long as they stay subscribed." }));
+      const buttons = [];
+      for (const x of [month, year]) {
+        if (!x) continue;
+        const label = el("button", {
+          class: "btn primary",
+          type: "button",
+          onclick: (e) => goToBilling(e.currentTarget, "/api/billing/checkout", { plan: x.plan }),
+        }, [`${money(x.amount, x.currency)} a ${x.interval}`]);
+        if (x.plan === "yearly" && month) {
+          const saved = month.amount * 12 - x.amount;
+          if (saved > 0) label.append(el("small", { text: `Saves ${money(saved, x.currency)} a year` }));
+        }
+        buttons.push(label);
+      }
+      parts.push(el("div", { class: "plan-buttons" }, buttons));
+      parts.push(el("p", { class: "fineprint", text: "You pay on Stripe's secure page, then come back here. Cancel any time; you keep the plan until the end of what you paid for." }));
+    }
+    // Past members can still see their receipts.
+    if (p.canManage) parts.push(el("div", {}, [manage("Billing history")]));
+  }
+  body.replaceChildren(...parts);
+}
+
+// Asks the server for a Stripe page (checkout or the billing portal) and goes there.
+async function goToBilling(button, path, payload = {}) {
+  button.disabled = true;
+  try {
+    const res = await fetch(path, { method: "POST", headers: await authHeaders(), body: JSON.stringify(payload) });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.url) throw new Error(data.error || `Something went wrong (${res.status}).`);
+    location.assign(data.url);
+  } catch (err) {
+    button.disabled = false;
+    const note = el("p", { class: "plan-note warn", role: "alert", text: navigator.onLine ? err.message : "You're offline. Try again when you're back online." });
+    $("#plan-body").prepend(note);
+  }
+}
+
+// Back from Stripe Checkout (?billing=success or ?billing=cancel). The
+// webhook usually lands within seconds; until it does, ask the server to
+// check with Stripe directly.
+async function returnFromCheckout() {
+  const result = checkoutReturn;
+  checkoutReturn = null;
+  if (!result) return;
+  if (location.search.includes("billing=")) {
+    try { history.replaceState(null, "", location.pathname + location.hash); } catch {}
+  }
+  if (result !== "success" || !billingOn || !syncEnabled()) return;
+  openSettings({ plan: true, notice: "Thanks! Setting up your plan…" });
+  for (let i = 0; i < 5; i++) {
+    const p = await loadPlan({ refresh: true, notice: "Thanks! Setting up your plan…" });
+    if (p?.plan === "founding") {
+      renderPlan(p, "Thank you for becoming a founding member. Your plan is active.");
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  const p = await loadPlan({ refresh: true });
+  if (p) renderPlan(p, "Your payment went through, but your plan is still being set up. Check back here in a minute.");
 }
 
 $("#open-settings").addEventListener("click", () => openSettings());
@@ -2065,6 +2198,7 @@ $("#manage-account").addEventListener("click", () => clerk?.openUserProfile());
   // The public demo address doesn't serve the full app (or answer the coach).
   if (config?.fullApp === false) return location.replace("/demo");
   authMode = config?.auth ?? "none";
+  billingOn = config?.billing === true;
 
   if (authMode === "none") return enterAs(null);
   const guest = load(GUEST_KEY, 0) === 1;

@@ -117,3 +117,81 @@ test("unexpected errors come back as JSON", async () => {
   assert.equal(res.status, 500);
   assert.match((await res.json()).error, /Something went wrong/);
 });
+
+// ---------- payments ----------
+
+const STRIPE = { STRIPE_API_KEY: "sk_test_unused", STRIPE_WEBHOOK_SECRET: "whsec_unused" };
+
+async function payingUser(db: D1Database, user: string, status = "active") {
+  await db.exec(
+    `INSERT INTO billing (user_id, customer_id, subscription_id, status, updated_at) VALUES ('${user}', 'cus_${user}', 'sub_${user}', '${status}', 0)`,
+  );
+}
+
+test("members get the paid allowance; free users at their limit are offered the plan", async () => {
+  const db = createTestDb();
+  // $1 of output each: over the $0.50 free allowance, under the $3 paid one.
+  await recordUsage(db, "dev_alice", { output_tokens: 50_000 });
+  await recordUsage(db, "dev_bob", { output_tokens: 50_000 });
+  await payingUser(db, "dev_bob");
+  const e = env({ DEV_AUTH: "true", DB: db, USER_MONTHLY_LIMIT_USD: "0.5", PAID_MONTHLY_LIMIT_USD: "3", ...STRIPE });
+
+  const alice = post("localhost", "/api/chat", chat);
+  alice.headers.set("x-dev-user", "alice");
+  const res = await worker.fetch(alice, e);
+  assert.equal(res.status, 429);
+  const body = await res.json();
+  assert.equal(body.code, "limit");
+  assert.equal(body.upgrade, true);
+
+  const bob = post("localhost", "/api/chat", { ...chat, coach: "nobody" });
+  bob.headers.set("x-dev-user", "bob");
+  assert.equal((await worker.fetch(bob, e)).status, 400, "bob gets past the limit check");
+
+  // A canceled member is back on the free allowance.
+  await db.exec("UPDATE billing SET status = 'canceled'");
+  const bob2 = post("localhost", "/api/chat", chat);
+  bob2.headers.set("x-dev-user", "bob");
+  assert.equal((await worker.fetch(bob2, e)).status, 429);
+});
+
+test("with payments off, nobody is offered a plan they can't buy", async () => {
+  const db = createTestDb();
+  await recordUsage(db, "dev_alice", { output_tokens: 50_000 });
+  const req = post("localhost", "/api/chat", chat);
+  req.headers.set("x-dev-user", "alice");
+  const res = await worker.fetch(req, env({ DEV_AUTH: "true", DB: db, USER_MONTHLY_LIMIT_USD: "0.5" }));
+  assert.equal(res.status, 429);
+  assert.equal((await res.json()).upgrade, undefined);
+});
+
+test("billing endpoints are off until Stripe is set up, and need the app address and a sign-in", async () => {
+  const get = (host: string) => new Request(`https://${host}/api/billing`);
+  assert.equal((await worker.fetch(get(APP), env(CLERK))).status, 501);
+  assert.equal((await worker.fetch(get(DEMO_HOST), env({ ...CLERK, ...STRIPE }))).status, 403);
+  assert.equal((await worker.fetch(get(APP), env({ ...CLERK, ...STRIPE }))).status, 401);
+  assert.equal((await worker.fetch(post(APP, "/api/billing/checkout", { plan: "monthly" }), env({ ...CLERK, ...STRIPE }))).status, 401);
+  assert.equal((await worker.fetch(post(APP, "/api/billing/portal", {}), env({ ...CLERK, ...STRIPE }))).status, 401);
+});
+
+test("checkout only accepts the two plans", async () => {
+  for (const plan of ["lifetime", "constructor", undefined]) {
+    const req = post("localhost", "/api/billing/checkout", { plan });
+    req.headers.set("x-dev-user", "alice");
+    const res = await worker.fetch(req, env({ DEV_AUTH: "true", DB: createTestDb(), ...STRIPE }));
+    assert.equal(res.status, 400, String(plan));
+  }
+});
+
+test("the Stripe webhook answers on the public address too, but only to signed requests", async () => {
+  const req = new Request(`https://${DEMO_HOST}/api/stripe/webhook`, { method: "POST", body: "{}" });
+  assert.equal((await worker.fetch(req, env({ DB: createTestDb(), ...STRIPE }))).status, 400);
+  assert.equal((await worker.fetch(new Request(`https://${DEMO_HOST}/api/stripe/webhook`, { method: "POST", body: "{}" }), env())).status, 501);
+});
+
+test("config says whether payments are on", async () => {
+  const off = await (await worker.fetch(new Request(`https://${APP}/api/config`), env(CLERK))).json();
+  const on = await (await worker.fetch(new Request(`https://${APP}/api/config`), env({ ...CLERK, ...STRIPE }))).json();
+  assert.equal(off.billing, false);
+  assert.equal(on.billing, true);
+});

@@ -25,4 +25,23 @@ interface Env {
    * token counts; see src/usage.ts). Defaults to 5. "0" turns the coach off.
    */
   USER_MONTHLY_LIMIT_USD?: string;
+  /**
+   * The monthly AI allowance for users on a paid plan, in US dollars. Defaults
+   * to 3. Only used when payments are set up (src/billing.ts).
+   */
+  PAID_MONTHLY_LIMIT_USD?: string;
+  /**
+   * Stripe API key, ideally a restricted key (rk_...) with only the
+   * permissions in the README's "Payments" section. Set with
+   * `wrangler secret put`. Payments stay off until this and the webhook
+   * secret are both set.
+   */
+  STRIPE_API_KEY?: string;
+  /** Signing secret of the Stripe webhook endpoint (whsec_...). */
+  STRIPE_WEBHOOK_SECRET?: string;
+  /**
+   * "true" turns on Stripe Tax at checkout. Leave off until Stripe Tax has a
+   * head office address (and registrations where you collect tax).
+   */
+  STRIPE_AUTOMATIC_TAX?: string;
 }

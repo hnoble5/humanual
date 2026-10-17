@@ -10,11 +10,13 @@
     "test:e2e": "node tests/e2e-sync.mjs",
     "test:demo": "node tests/e2e-demo.mjs",
     "test:live": "node tests/e2e-live.mjs",
-    "demo:record": "node tools/record-demo.mjs"
+    "demo:record": "node tools/record-demo.mjs",
+    "test:billing": "node tests/e2e-billing.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.131.0",
     "@clerk/backend": "^3.22.0",
+    "stripe": "^23.0.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

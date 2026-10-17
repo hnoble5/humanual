@@ -5,3 +5,7 @@ CLERK_PUBLISHABLE_KEY=
 CLERK_SECRET_KEY=
 # Local testing only: a pretend sign-in on localhost when Clerk isn't set up.
 DEV_AUTH=true
+# Payments (Stripe sandbox). Leave blank to run without payments.
+# A restricted key (rk_test_...), and the whsec_ secret from `stripe listen`.
+STRIPE_API_KEY=
+STRIPE_WEBHOOK_SECRET=

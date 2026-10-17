@@ -361,6 +361,13 @@ input:not([type=radio]):not([type=checkbox]), textarea, select {
 .sync-status { color: var(--muted); }
 .account-actions { display: flex; gap: 14px; justify-content: flex-end; }
 .account-actions .linkback { font-size: 13px; }
+.plan { padding-top: 12px; border-top: 1px solid var(--line); }
+.plan p { margin: 0 0 8px; }
+.plan-note { border-left: 3px solid var(--accent); padding: 8px 12px; background: var(--accent-soft); border-radius: 0 8px 8px 0; }
+.plan-note.warn { border-left-color: #b4532a; }
+.plan-buttons { display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0 6px; }
+.plan-buttons .btn { flex: 1 1 180px; flex-direction: column; gap: 2px; }
+.plan-buttons .btn small { display: block; color: inherit; margin: 0; font-weight: 400; font-size: 13px; }
 .sheet-account { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--line); }
 .sheet-account span { overflow-wrap: anywhere; }
 .dev-signin { margin-top: 8px; }

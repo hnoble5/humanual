@@ -333,6 +333,12 @@
         <div><button class="btn ghost danger small" type="button" id="memory-clear" hidden>Forget everything</button></div>
       </div>
 
+      <!-- Plan: only when payments are set up and someone is signed in (app.js, renderPlan). -->
+      <section class="field plan" id="plan-field" aria-labelledby="plan-title" hidden>
+        <span id="plan-title">Plan</span>
+        <div id="plan-body"><p class="muted small">Loading your plan…</p></div>
+      </section>
+
       <div class="account-line sheet-account" data-account-line hidden>
         <span class="muted small" data-account-email></span>
         <button class="btn ghost" type="button" data-sign-out>Sign out</button>

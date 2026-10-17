@@ -14,8 +14,11 @@ export const PRICES = {
   output: 20,
 } as const;
 
-/** Used when USER_MONTHLY_LIMIT_USD isn't set. */
+/** Used when USER_MONTHLY_LIMIT_USD isn't set: the free allowance. */
 export const DEFAULT_MONTHLY_LIMIT_USD = 5;
+
+/** Used when PAID_MONTHLY_LIMIT_USD isn't set: the allowance on a paid plan. */
+export const DEFAULT_PAID_MONTHLY_LIMIT_USD = 3;
 
 /** The token counts the Anthropic API reports on every response. */
 export interface TokenUsage {
@@ -42,10 +45,23 @@ export function monthKey(now = Date.now()): string {
   return new Date(now).toISOString().slice(0, 7);
 }
 
-/** The monthly allowance in micro-dollars. A bad or missing setting falls back to the default. */
-export function monthlyLimitMicros(env: { USER_MONTHLY_LIMIT_USD?: string }): number {
-  const usd = Number(env.USER_MONTHLY_LIMIT_USD);
-  return Math.round((Number.isFinite(usd) && usd >= 0 ? usd : DEFAULT_MONTHLY_LIMIT_USD) * 1_000_000);
+const usdToMicros = (setting: string | undefined, fallback: number) => {
+  const usd = Number(setting);
+  return Math.round((setting !== undefined && setting !== "" && Number.isFinite(usd) && usd >= 0 ? usd : fallback) * 1_000_000);
+};
+
+/**
+ * The monthly allowance in micro-dollars: USER_MONTHLY_LIMIT_USD for everyone,
+ * or PAID_MONTHLY_LIMIT_USD for users on a paid plan. A bad or missing setting
+ * falls back to the default.
+ */
+export function monthlyLimitMicros(
+  env: { USER_MONTHLY_LIMIT_USD?: string; PAID_MONTHLY_LIMIT_USD?: string },
+  paid = false,
+): number {
+  return paid
+    ? usdToMicros(env.PAID_MONTHLY_LIMIT_USD, DEFAULT_PAID_MONTHLY_LIMIT_USD)
+    : usdToMicros(env.USER_MONTHLY_LIMIT_USD, DEFAULT_MONTHLY_LIMIT_USD);
 }
 
 /** What this user has cost so far this month, in micro-dollars. */

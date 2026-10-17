@@ -16,11 +16,13 @@ This is **Coach mode**: Heather's `social-coach` skill turned into a web app, wi
 | `src/journal.ts` | Journal: the reply card's fields (`/api/journal` returns encouragement, what went well, one thing to try, a reality check). |
 | `src/memory.ts` | Memory: after each chat reply, journal entry, or script, `/api/remember` updates the list of facts the coach keeps about the user. |
 | `src/auth.ts` | Sign-in check: verifies the Clerk session token on each request (or the localhost-only dev sign-in). |
+| `src/billing.ts` | Payments (Stripe): `/api/billing/checkout` opens Stripe Checkout, `/api/billing/portal` opens the billing portal, `/api/billing` returns the user's plan, and `/api/stripe/webhook` keeps the `billing` table in step with Stripe. |
 | `src/storage.ts` | Sync: `/api/sync` stores each user's profile, conversations, scripts, and journal entries in D1. |
 | `migrations/` | D1 database schema. |
 | `public/` | The UI (plain HTML/CSS/JS, no build step). |
 | `tests/unit/` | Unit tests (`npm run test:unit`, no server or API calls): sync against the real schema in SQLite, the crisis pre-check, and request handling. |
 | `tests/e2e-sync.mjs` | Browser test: sign-in, sync between devices, delete-all, and moving pre-account data into an account. |
+| `tests/e2e-billing.mjs` | Browser test: the Plan section, going to checkout and back, Manage billing, and the upgrade prompt at the monthly limit (Stripe is stood in for; nothing is charged). |
 | `tests/e2e-demo.mjs` | Browser test: the public demo never calls the API or saves anything. |
 | `tests/e2e-live.mjs` | Browser test with the real coach (a few API calls): journal reply, memory, and a new chat that remembers. |
 | `tools/demo-spec.mjs`, `tools/record-demo.mjs` | What the demo shows, and the tool that records the real coach's replies for it. |
@@ -63,7 +65,7 @@ Who can use the coach is decided in two steps: only the hosts in `APP_HOSTS` (in
 
 The API key belongs to the business, not a person. Use a key from the **Elite Test Automation** organization in the [Claude Console](https://platform.claude.com), from a workspace kept just for Humanual with a monthly spend limit set. That limit is the hard ceiling on the whole bill.
 
-Inside that ceiling, each signed-in user gets a monthly allowance, `USER_MONTHLY_LIMIT_USD` in `wrangler.jsonc` (default `5`). The Worker estimates each response's cost from its token counts (prices in `src/usage.ts`), adds it to the `usage` table in D1 per user per month (UTC), and refuses further AI calls with a 429 once a user reaches the allowance. Anthropic gets a SHA-256 hash of each user's id as `metadata.user_id`, never the id or email.
+Inside that ceiling, each signed-in user gets a monthly allowance in `wrangler.jsonc`: `USER_MONTHLY_LIMIT_USD` for free accounts and `PAID_MONTHLY_LIMIT_USD` for founding members (see "Payments" below). The Worker estimates each response's cost from its token counts (prices in `src/usage.ts`), adds it to the `usage` table in D1 per user per month (UTC), and refuses further AI calls with a 429 once a user reaches the allowance. Anthropic gets a SHA-256 hash of each user's id as `metadata.user_id`, never the id or email.
 
 To see who's using what:
 
@@ -117,9 +119,61 @@ The `*.workers.dev` address is turned off (`"workers_dev": false`), because it w
 
 When the Access session runs out, the app's requests fail with "Couldn't reach Humanual" until you reload the page and log in again.
 
+## Payments (Stripe)
+
+Humanual sells one plan, **Founding member**, at $6 a month or $50 a year. Members keep that price for as long as they stay subscribed: when prices go up, add new prices with new lookup keys, and existing subscriptions stay on theirs.
+
+How it works:
+
+- **Settings → Plan** shows the user's plan and this month's use. Free users pick monthly or yearly and go to **Stripe Checkout** (a Stripe-hosted page). Members get **Manage billing**, which opens the **Stripe customer portal**: switch monthly/yearly, update the card, see receipts, or cancel (cancellations take effect at the end of the paid period).
+- **Webhooks** keep the `billing` table in D1 up to date. On every event the Worker re-reads that customer's subscriptions from Stripe, so events arriving late, twice, or out of order can't leave the wrong status. Coming back from checkout, the app also asks the Worker to check with Stripe directly, in case the webhook is a few seconds behind.
+- **Allowance:** `active`, `trialing` and `past_due` (Stripe is still retrying a failed card) get `PAID_MONTHLY_LIMIT_USD`; everyone else gets `USER_MONTHLY_LIMIT_USD`. A free user at their limit is offered the plan.
+- Prices are looked up by **lookup key** (`humanual_founding_monthly`, `humanual_founding_yearly`), so the same code works in the sandbox and in live mode.
+- Payments stay off (no Plan section, everyone on the free allowance) until both Stripe secrets are set.
+
+### Setting it up (once per Stripe mode: sandbox first, then live)
+
+1. **Product and prices.** One product, "Humanual" (tax code `txcd_10103000`, SaaS for personal use), with two recurring USD prices: $6/month with lookup key `humanual_founding_monthly`, and $50/year with `humanual_founding_yearly`. Tax behavior: exclusive. (Already done in the sandbox.)
+2. **Customer portal.** Dashboard → Settings → Billing → Customer portal: allow updating payment methods, updating email and address, invoice history, cancel at end of period, and switching between the two Humanual prices. Save. (Already done in the sandbox.)
+3. **Failed payments.** Dashboard → Settings → Billing → Revenue recovery: turn on Smart Retries, the failed-payment emails, and automatic card updates. Pick what happens when retries run out (cancel is simplest).
+4. **API key.** Dashboard → Developers → API keys → **Create restricted key**, with only:
+   Checkout Sessions *Write*, Customers *Write*, Customer portal *Write*, Prices *Read*, Subscriptions *Read*. Then:
+   ```sh
+   npx wrangler secret put STRIPE_API_KEY          # rk_test_... (sandbox) or rk_live_... (live)
+   ```
+5. **Webhook.** Dashboard → Developers → Webhooks → **Add destination**:
+   - URL: `https://coach.elitetestautomation.com/api/stripe/webhook`. Use the public `coach.` address: Cloudflare Access sits in front of `humanual.` and would turn Stripe away. The endpoint only acts on requests signed with the secret below.
+   - Events: `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `customer.subscription.paused`, `customer.subscription.resumed`, `invoice.paid`, `invoice.payment_failed`.
+   ```sh
+   npx wrangler secret put STRIPE_WEBHOOK_SECRET   # whsec_... from the destination's page
+   ```
+6. **Database.** `npx wrangler d1 migrations apply humanual --remote` (adds the `billing` table), then `npm run deploy`.
+7. **Try it** with a test card (`4242 4242 4242 4242`, any future date, any CVC): Settings → Plan → $6 a month → pay → you come back as a Founding member. Then Manage billing → cancel, and check that the plan says when it ends.
+
+Only one Stripe mode is live at a time: the keys decide which. Going live means repeating steps 1–5 in live mode with live keys (sandbox products, prices, portal settings, webhooks and tax settings don't carry over).
+
+### Sales tax
+
+`STRIPE_AUTOMATIC_TAX` (in `wrangler.jsonc`) is `"false"` for now. To turn it on:
+
+1. Dashboard → Tax → Settings: add the business's head office address. Checkout fails with tax on until this is set.
+2. Set `STRIPE_AUTOMATIC_TAX` to `"true"` and deploy. Checkout then asks for the customer's address and calculates tax.
+3. **Stripe only collects tax where you've added a registration** (Dashboard → Tax → Locations). With none, it collects $0 and shows no error. Stripe's threshold monitoring (also under Tax → Locations) flags states where sales are nearing the point of needing to register. Ask an accountant which states apply before registering.
+
+### Local development
+
+Payments need real (sandbox) Stripe keys, so they're off in local dev unless you add `STRIPE_API_KEY` and `STRIPE_WEBHOOK_SECRET` to `.dev.vars`. To receive webhooks locally, use the Stripe CLI: `stripe listen --forward-to localhost:8787/api/stripe/webhook` (it prints a `whsec_` secret to use). `npm run test:billing` checks the Plan screens without any Stripe keys.
+
+To see who's subscribed:
+
+```sh
+npx wrangler d1 execute humanual --remote --command \
+  "SELECT user_id, status, price_lookup_key, datetime(current_period_end/1000,'unixepoch') AS period_end FROM billing ORDER BY updated_at DESC"
+```
+
 ## Notes
 
 - Model: Claude Opus 5.5 at `medium` effort (memory updates at `low`), with server-side refusal fallback and prompt caching. Rule: anything that works with the user's personal details uses Opus; only features that never see personal details may use Sonnet. Today that's every AI call.
 - Cost backstop: AI requests are answered only on the hosts in `APP_HOSTS` and on localhost, only for signed-in users, and only up to each user's monthly allowance. With no sign-in set up, the coach runs only on localhost (as a single "local" user).
 - Guests: with accounts set up, people can continue as a guest. Guest data stays in that browser; signing in later moves it into the account.
-- Not yet built: payments, per-user rate limiting, Buddy mode (`buddy-system-prompt.md`), real avatar art (placeholders use each coach's colors).
+- Not yet built: per-user rate limiting, Buddy mode (`buddy-system-prompt.md`), real avatar art (placeholders use each coach's colors).

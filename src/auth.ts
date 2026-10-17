@@ -1,4 +1,4 @@
-import { verifyToken } from "@clerk/backend";
+import { createClerkClient, verifyToken } from "@clerk/backend";
 
 export type AuthMode = "clerk" | "dev" | "none";
 
@@ -45,4 +45,21 @@ export async function getUserId(request: Request, env: Env): Promise<string | nu
   }
 
   return null;
+}
+
+/**
+ * The user's main email address from Clerk, so Stripe receipts and invoices go
+ * to it. Null with dev sign-in, or when Clerk can't be reached (Checkout then
+ * asks for an email itself).
+ */
+export async function getUserEmail(userId: string, env: Env): Promise<string | null> {
+  if (!env.CLERK_SECRET_KEY || userId.startsWith("dev_")) return null;
+  try {
+    const user = await createClerkClient({ secretKey: env.CLERK_SECRET_KEY }).users.getUser(userId);
+    const primary = user.emailAddresses.find((e) => e.id === user.primaryEmailAddressId) ?? user.emailAddresses[0];
+    return primary?.emailAddress ?? null;
+  } catch (err) {
+    console.error("couldn't read the user's email from Clerk", err);
+    return null;
+  }
 }

@@ -32,7 +32,16 @@
   // Off: a *.workers.dev address would skip Cloudflare Access on humanual.
   "workers_dev": false,
   // Hosts that serve the full app; everything else gets only the demo (src/worker.ts).
-  // USER_MONTHLY_LIMIT_USD: each signed-in user's monthly AI allowance (src/usage.ts).
-  "vars": { "APP_HOSTS": "humanual.elitetestautomation.com", "USER_MONTHLY_LIMIT_USD": "5" },
+  // Monthly AI allowance per signed-in user, in dollars of estimated API cost (src/usage.ts):
+  //  - USER_MONTHLY_LIMIT_USD: free accounts (everyone, while payments are off).
+  //  - PAID_MONTHLY_LIMIT_USD: founding members. Keep it well under the plan's
+  //    price ($6/month) so each member still pays for more than their AI use.
+  // STRIPE_AUTOMATIC_TAX: "true" adds sales tax at checkout (README, "Sales tax").
+  "vars": {
+    "APP_HOSTS": "humanual.elitetestautomation.com",
+    "USER_MONTHLY_LIMIT_USD": "0.5",
+    "PAID_MONTHLY_LIMIT_USD": "3",
+    "STRIPE_AUTOMATIC_TAX": "false"
+  },
   "preview_urls": false
 }

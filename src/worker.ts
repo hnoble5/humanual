@@ -6,7 +6,23 @@ import { buildSystem, COACHES, MODES, turnReminder, type CoachId, type ModeId, t
 import { CHANNELS, ScriptSchema, scriptRequest, type ChannelId } from "./script";
 import { JournalSchema, journalRequest } from "./journal";
 import { MAX_MEMORIES, MAX_MEMORY_CHARS, MEMORY_SYSTEM, MemorySchema, memoryRequest } from "./memory";
-import { authMode, getUserId } from "./auth";
+import { authMode, getUserEmail, getUserId } from "./auth";
+import {
+  BillingError,
+  billingEnabled,
+  createCheckout,
+  createPortal,
+  getBilling,
+  handleWebhook,
+  hasPaidPlan,
+  isPaidStatus,
+  listPlans,
+  planSummary,
+  PLANS,
+  stripeClient,
+  syncCustomer,
+  type PlanChoice,
+} from "./billing";
 import { deleteAll, StorageFullError, sync, SyncError } from "./storage";
 import { anthropicUserId, monthlyLimitMicros, recordUsage, spentThisMonth, type TokenUsage } from "./usage";
 
@@ -136,6 +152,13 @@ const LIMIT_ERROR = {
   error: "You've used this month's coaching. It resets on the 1st.",
   code: "limit",
 };
+// Free users who reach their allowance are offered the paid plan (when payments are on).
+const FREE_LIMIT_ERROR = {
+  error:
+    "You've used this month's free coaching. To keep going now, become a founding member under Settings, then Plan. Otherwise it resets on the 1st.",
+  code: "limit",
+  upgrade: true,
+};
 
 /**
  * The coach endpoints: app hosts only, signed-in users only, and only while the
@@ -160,8 +183,11 @@ async function guardModel(request: Request, env: Env): Promise<ModelUser | Respo
     if (!userId) return json(COACH_SIGNIN_ERROR, 401);
   }
 
-  if (env.DB && (await spentThisMonth(env.DB, userId)) >= monthlyLimitMicros(env)) {
-    return json(LIMIT_ERROR, 429);
+  if (env.DB) {
+    const paid = billingEnabled(env) && (await hasPaidPlan(env.DB, userId));
+    if ((await spentThisMonth(env.DB, userId)) >= monthlyLimitMicros(env, paid)) {
+      return json(paid || !billingEnabled(env) ? LIMIT_ERROR : FREE_LIMIT_ERROR, 429);
+    }
   }
   return { userId, metadata: { user_id: await anthropicUserId(userId) } };
 }
@@ -195,6 +221,87 @@ async function handleSync(request: Request, env: Env): Promise<Response> {
     if (err instanceof SyntaxError) return json({ error: "Invalid request" }, 400);
     console.error("sync failed", err);
     return json({ error: "Couldn't sync right now. Your changes are kept on this device." }, 500);
+  }
+}
+
+// ---------- payments (src/billing.ts) ----------
+
+/**
+ * Billing endpoints: app hosts only, a real signed-in account (not the
+ * localhost "local" user), and payments set up. Returns the user and a Stripe
+ * client, or the error response to send.
+ */
+async function guardBilling(request: Request, env: Env) {
+  if (!billingEnabled(env)) return json({ error: "Payments aren't set up on this server." }, 501);
+  if (!isAppHost(request, env)) return json({ error: "Payments only work in the Humanual app." }, 403);
+  if (authMode(request, env) === "none") return json({ error: "Sign-in isn't set up on this server." }, 501);
+  const userId = await getUserId(request, env);
+  if (!userId) return json({ error: "Sign in to see your plan.", code: "signin" }, 401);
+  return { userId, stripe: stripeClient(env) };
+}
+
+function billingFailure(err: unknown, what: string): Response {
+  if (err instanceof BillingError) return json({ error: err.message }, err.status);
+  console.error(`${what} failed`, err);
+  return json({ error: "Couldn't reach the payment service. Try again in a minute." }, 502);
+}
+
+// The signed-in user's plan, this month's use of their allowance, and the
+// prices on offer. ?refresh=1 re-reads their subscription from Stripe first
+// (used right after checkout, in case the webhook hasn't arrived yet).
+async function handleBillingStatus(request: Request, env: Env): Promise<Response> {
+  const auth = await guardBilling(request, env);
+  if (auth instanceof Response) return auth;
+  const { userId, stripe } = auth;
+  try {
+    let row = await getBilling(env.DB, userId);
+    if (row && new URL(request.url).searchParams.get("refresh") === "1") {
+      row = (await syncCustomer(stripe, env.DB, row.customer_id)) ?? row;
+    }
+    const limit = monthlyLimitMicros(env, isPaidStatus(row?.status));
+    const spent = await spentThisMonth(env.DB, userId);
+    return json({
+      ...planSummary(row),
+      usedPercent: limit > 0 ? Math.min(100, Math.round((spent / limit) * 100)) : 100,
+      plans: await listPlans(stripe),
+    });
+  } catch (err) {
+    return billingFailure(err, "billing status");
+  }
+}
+
+async function handleCheckout(request: Request, env: Env): Promise<Response> {
+  const auth = await guardBilling(request, env);
+  if (auth instanceof Response) return auth;
+  let plan: PlanChoice;
+  try {
+    const body: any = await request.json();
+    if (!isKey(PLANS, body?.plan)) throw new BadRequest("Pick monthly or yearly");
+    plan = body.plan;
+  } catch (err) {
+    return json({ error: err instanceof BadRequest ? err.message : "Invalid request" }, 400);
+  }
+  try {
+    const url = await createCheckout(auth.stripe, env.DB, {
+      userId: auth.userId,
+      email: await getUserEmail(auth.userId, env),
+      plan,
+      origin: new URL(request.url).origin,
+      automaticTax: env.STRIPE_AUTOMATIC_TAX === "true",
+    });
+    return json({ url });
+  } catch (err) {
+    return billingFailure(err, "checkout");
+  }
+}
+
+async function handlePortal(request: Request, env: Env): Promise<Response> {
+  const auth = await guardBilling(request, env);
+  if (auth instanceof Response) return auth;
+  try {
+    return json({ url: await createPortal(auth.stripe, env.DB, auth.userId, new URL(request.url).origin) });
+  } catch (err) {
+    return billingFailure(err, "billing portal");
   }
 }
 
@@ -453,6 +560,26 @@ async function route(request: Request, env: Env): Promise<Response> {
     if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
     return handleJournal(request, env);
   }
+  if (url.pathname === "/api/stripe/webhook") {
+    // Stripe calls this from outside, so it works on any of the Worker's
+    // addresses (Cloudflare Access would block Stripe on the app address).
+    // The signature check is what keeps everyone else out.
+    if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+    if (!billingEnabled(env)) return json({ error: "Payments aren't set up on this server." }, 501);
+    return handleWebhook(request, env);
+  }
+  if (url.pathname === "/api/billing") {
+    if (request.method !== "GET") return json({ error: "Method not allowed" }, 405);
+    return handleBillingStatus(request, env);
+  }
+  if (url.pathname === "/api/billing/checkout") {
+    if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+    return handleCheckout(request, env);
+  }
+  if (url.pathname === "/api/billing/portal") {
+    if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
+    return handlePortal(request, env);
+  }
   if (url.pathname === "/api/sync") {
     if (request.method !== "POST" && request.method !== "DELETE") return json({ error: "Method not allowed" }, 405);
     return handleSync(request, env);
@@ -464,6 +591,8 @@ async function route(request: Request, env: Env): Promise<Response> {
       fullApp: isAppHost(request, env),
       auth,
       clerkPublishableKey: auth === "clerk" ? env.CLERK_PUBLISHABLE_KEY : undefined,
+      // The Plan section in Settings only shows when payments are set up.
+      billing: billingEnabled(env) && auth !== "none",
     });
   }
   if (url.pathname.startsWith("/api/")) return json({ error: "Not found" }, 404);
