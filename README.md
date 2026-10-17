@@ -57,7 +57,20 @@ npx wrangler secret put ANTHROPIC_API_KEY
 npm run deploy
 ```
 
-Who can use the coach is decided by address, not by a code: only the hosts in `APP_HOSTS` (in `wrangler.jsonc`) answer AI requests, and those sit behind Cloudflare Access (see "Private app" below). Inside the app, people sign in to their account or continue as a guest.
+Who can use the coach is decided in two steps: only the hosts in `APP_HOSTS` (in `wrangler.jsonc`) answer AI requests, and on those hosts the coach needs a signed-in account. Guests can look around, but every AI call belongs to one user, so it can be tracked and capped (see "AI billing and usage limits" below).
+
+### AI billing and usage limits
+
+The API key belongs to the business, not a person. Use a key from the **Elite Test Automation** organization in the [Claude Console](https://platform.claude.com), from a workspace kept just for Humanual with a monthly spend limit set. That limit is the hard ceiling on the whole bill.
+
+Inside that ceiling, each signed-in user gets a monthly allowance, `USER_MONTHLY_LIMIT_USD` in `wrangler.jsonc` (default `5`). The Worker estimates each response's cost from its token counts (prices in `src/usage.ts`), adds it to the `usage` table in D1 per user per month (UTC), and refuses further AI calls with a 429 once a user reaches the allowance. Anthropic gets a SHA-256 hash of each user's id as `metadata.user_id`, never the id or email.
+
+To see who's using what:
+
+```sh
+npx wrangler d1 execute humanual --remote --command \
+  "SELECT user_id, requests, cost_micros / 1e6 AS usd FROM usage WHERE month = strftime('%Y-%m','now') ORDER BY cost_micros DESC"
+```
 
 ### Turning on accounts (one time)
 
@@ -65,7 +78,7 @@ Who can use the coach is decided by address, not by a code: only the hosts in `A
 2. Create the production database and apply the schema:
    ```sh
    npx wrangler d1 create humanual          # copy the database_id it prints into wrangler.jsonc
-   npx wrangler d1 migrations apply humanual --remote
+   npx wrangler d1 migrations apply humanual --remote   # run again after pulling new migrations
    ```
 3. Add the Clerk keys (from Clerk dashboard → API keys) and lock tokens to your site:
    ```sh
@@ -107,6 +120,6 @@ When the Access session runs out, the app's requests fail with "Couldn't reach H
 ## Notes
 
 - Model: Claude Opus 5.5 at `medium` effort (memory updates at `low`), with server-side refusal fallback and prompt caching. Rule: anything that works with the user's personal details uses Opus; only features that never see personal details may use Sonnet. Today that's every AI call.
-- Cost backstop: AI requests are answered only on the hosts in `APP_HOSTS` (behind Cloudflare Access) and on localhost. If you ever remove Access from `humanual.`, add usage limits first, because guests need no sign-in.
+- Cost backstop: AI requests are answered only on the hosts in `APP_HOSTS` and on localhost, only for signed-in users, and only up to each user's monthly allowance. With no sign-in set up, the coach runs only on localhost (as a single "local" user).
 - Guests: with accounts set up, people can continue as a guest. Guest data stays in that browser; signing in later moves it into the account.
 - Not yet built: payments, per-user rate limiting, Buddy mode (`buddy-system-prompt.md`), real avatar art (placeholders use each coach's colors).
