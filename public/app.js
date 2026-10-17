@@ -388,24 +388,32 @@ async function enterAs(userId, { prefillName = "" } = {}) {
 
   if (settings?.name) {
     startApp();
-    if (location.hash === "#scripts" || location.hash === "#journal") showView(location.hash.slice(1));
   } else {
     showOnboarding(prefillName);
   }
 }
 
+// The header shows who's signed in with a Sign out link. Settings and the
+// welcome screen repeat it (data-account-line) so it can be found anywhere.
 function renderAccount() {
   const box = $("#account");
   const guest = isGuest();
   box.hidden = !syncEnabled() && !guest;
+  document.querySelectorAll("[data-account-line]").forEach((el) => { el.hidden = box.hidden; });
   if (box.hidden) return;
-  $("#account-email").textContent = guest
+  const who = guest
     ? "Guest: saved on this device only"
     : authMode === "clerk"
       ? clerk?.user?.primaryEmailAddress?.emailAddress ?? "Signed in"
       : `Test user: ${load("humanual.devUser", "")}`;
+  $("#account-email").textContent = who;
+  document.querySelectorAll("[data-account-email]").forEach((el) => {
+    el.textContent = guest ? who : `Signed in as ${who.replace(/^Test user: /, "")}.`;
+  });
   $("#manage-account").hidden = guest || authMode !== "clerk";
-  $("#sign-out").textContent = guest ? "Sign in" : "Sign out";
+  for (const b of [$("#sign-out"), ...document.querySelectorAll("[data-sign-out]")]) {
+    b.textContent = guest ? "Sign in" : "Sign out";
+  }
   $("#clear-guest-app").hidden = !guest;
   if (guest) setSyncStatus("");
 }
@@ -670,6 +678,10 @@ function startApp() {
   const latest = convos[0];
   if (latest && !DEMO) openConvo(latest.id);
   else newConvo();
+  // Scripts is the home tab (the demo opens on its sample chats); #chat or
+  // #journal in the address opens that one.
+  const hashView = location.hash === "#chat" || location.hash === "#journal" ? location.hash.slice(1) : null;
+  showView(hashView ?? (DEMO ? "chat" : "scripts"));
 }
 
 function newConvo() {
@@ -1291,9 +1303,9 @@ $("#wipe").addEventListener("click", async () => {
   location.reload();
 });
 
-// ---------- views (coach chat / scripts / journal) ----------
+// ---------- views (scripts / coach chat / journal) ----------
 
-let view = "chat";
+let view = "scripts";
 
 function showView(name) {
   view = name;
@@ -1304,7 +1316,7 @@ function showView(name) {
     if (b.dataset.view === name) b.setAttribute("aria-current", "page");
     else b.removeAttribute("aria-current");
   }
-  try { history.replaceState(null, "", name === "chat" ? location.pathname : "#" + name); } catch {}
+  try { history.replaceState(null, "", name === "scripts" ? location.pathname : "#" + name); } catch {}
   if (name === "scripts") renderScriptsView();
   if (name === "journal") renderJournalView();
   closeSidebar();
@@ -2035,6 +2047,7 @@ $("#dev-signin").addEventListener("submit", (e) => {
   enterAs(`dev_${id}`);
 });
 $("#sign-out").addEventListener("click", signOut);
+document.querySelectorAll("[data-sign-out]").forEach((b) => b.addEventListener("click", signOut));
 $("#clear-guest-app").addEventListener("click", clearGuestData);
 $("#manage-account").addEventListener("click", () => clerk?.openUserProfile());
 

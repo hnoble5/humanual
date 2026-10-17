@@ -48,7 +48,7 @@ try {
   ok("sidebar has the recorded rehearsal", (await page.$$eval("#convo-list .convo-item", (n) => n.length)) === 1);
   ok("start screen opens at the top", (await page.$eval("#scroller", (s) => s.scrollTop)) === 0);
   ok("no Just talk it through card", !(await page.isVisible(".mode-card:has-text('Just talk it through')")));
-  ok("three tabs", (await page.$$eval(".view-btn", (n) => n.map((b) => b.textContent.trim()).join(","))) === "Coach chat,Scripts,Journal");
+  ok("three tabs", (await page.$$eval(".view-btn", (n) => n.map((b) => b.textContent.trim()).join(","))) === "Scripts,Coach chat,Journal");
 
   // Play a sample through both turns.
   const dentist = sample("dentist");
