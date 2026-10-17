@@ -44,12 +44,121 @@ test("the coach never answers on the public demo address", async () => {
 
 const CLERK = { CLERK_SECRET_KEY: "sk_test_x", CLERK_PUBLISHABLE_KEY: "pk_test_x" };
 
-test("the coach needs a signed-in user on the app address", async () => {
+test("the coach needs a signed-in user on the app address (guest trial needs the database)", async () => {
   for (const path of AI_PATHS) {
     const res = await worker.fetch(post(APP, path, chat), env(CLERK));
     assert.equal(res.status, 401, path);
     assert.equal((await res.json()).code, "signin");
   }
+});
+
+// ---------- guest trial (src/guest.ts) ----------
+
+const GUEST_ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
+const asGuest = (path: string, body: unknown, cookie = "") => {
+  const req = post(APP, path, body);
+  req.headers.set("cf-connecting-ip", "203.0.113.7");
+  if (cookie) req.headers.set("cookie", cookie);
+  return req;
+};
+const useUpTrial = async (db: D1Database) =>
+  db.exec(`INSERT INTO guest_usage (key, messages, cost_micros, updated_at) VALUES ('guest:${GUEST_ID}', 5, 0, 0)`);
+
+test("a guest gets past the coach chat gate", async () => {
+  // An invalid coach gets a 400 from input checking: past the sign-in gate, no AI called.
+  const res = await worker.fetch(asGuest("/api/chat", { ...chat, coach: "nobody" }), env({ ...CLERK, DB: createTestDb() }));
+  assert.equal(res.status, 400);
+});
+
+test("a guest who has used the free messages is told to make an account, with no AI call", async () => {
+  const db = createTestDb();
+  await useUpTrial(db);
+  const res = await worker.fetch(asGuest("/api/chat", chat, `hm_guest=${GUEST_ID}`), env({ ...CLERK, DB: db }));
+  assert.equal(res.status, 429);
+  const data = await res.json();
+  assert.equal(data.code, "guest_limit");
+  assert.match(data.error, /5 free coach messages.*Create a free account/);
+  assert.equal(data.crisis, undefined);
+});
+
+test("a guest over the limit who writes something alarming is pointed to crisis help, not just sign-up", async () => {
+  const db = createTestDb();
+  await db.exec(`INSERT INTO guest_usage (key, messages, cost_micros, updated_at) VALUES ('day:${new Date().toISOString().slice(0, 10)}', 0, 99000000, 0)`);
+  const crisisChat = { ...chat, messages: [{ role: "user", content: "I want to kill myself" }] };
+  const res = await worker.fetch(asGuest("/api/chat", crisisChat, `hm_guest=${GUEST_ID}`), env({ ...CLERK, DB: db }));
+  assert.equal(res.status, 429);
+  const data = await res.json();
+  assert.equal(data.crisis, true);
+  assert.match(data.error, /988/);
+  // A brand-new guest is given a cookie even when turned away.
+  const fresh = await worker.fetch(asGuest("/api/chat", chat), env({ ...CLERK, DB: db }));
+  assert.match(fresh.headers.get("set-cookie") ?? "", /^hm_guest=[0-9a-f-]{36};/);
+});
+
+test("guests can't send long conversations, or requests from other sites", async () => {
+  const e = env({ ...CLERK, DB: createTestDb() });
+  const long = { ...chat, messages: [{ role: "user", content: "x".repeat(12_001) }] };
+  const res = await worker.fetch(asGuest("/api/chat", long), e);
+  assert.equal(res.status, 413);
+  assert.equal((await res.json()).code, "guest_long");
+  // A form post from another site (text/plain, no preflight) is refused.
+  const plain = asGuest("/api/chat", chat);
+  plain.headers.set("content-type", "text/plain");
+  assert.equal((await worker.fetch(plain, e)).status, 403);
+  const elsewhere = asGuest("/api/chat", chat);
+  elsewhere.headers.set("origin", "https://evil.example");
+  assert.equal((await worker.fetch(elsewhere, e)).status, 403);
+  // Same-site requests are fine (400 here only because of the invalid coach).
+  const same = asGuest("/api/chat", { ...chat, coach: "nobody" });
+  same.headers.set("origin", `https://${APP}`);
+  assert.equal((await worker.fetch(same, e)).status, 400);
+});
+
+test("scripts, journal and memory still need an account", async () => {
+  const e = env({ ...CLERK, DB: createTestDb() });
+  for (const path of AI_PATHS.slice(1)) {
+    const res = await worker.fetch(asGuest(path, chat), e);
+    assert.equal(res.status, 401, path);
+    assert.equal((await res.json()).code, "signin");
+  }
+});
+
+test("a sign-in that doesn't check out means sign in again, not guest", async () => {
+  const req = asGuest("/api/chat", chat);
+  req.headers.set("authorization", "Bearer not-a-real-token");
+  const res = await worker.fetch(req, env({ ...CLERK, DB: createTestDb() }));
+  assert.equal(res.status, 401);
+  assert.equal((await res.json()).code, "signin");
+});
+
+test("GUEST_MESSAGE_LIMIT 0 turns the guest trial off", async () => {
+  const res = await worker.fetch(asGuest("/api/chat", chat), env({ ...CLERK, DB: createTestDb(), GUEST_MESSAGE_LIMIT: "0" }));
+  assert.equal(res.status, 401);
+});
+
+test("before the guest table exists, guests are asked to sign in as before (no crash)", async () => {
+  const noTable = createTestDb();
+  await noTable.exec("DROP TABLE guest_usage");
+  const res = await worker.fetch(asGuest("/api/chat", chat), env({ ...CLERK, DB: noTable }));
+  assert.equal(res.status, 401);
+  const config = await (await worker.fetch(new Request(`https://${APP}/api/config`), env({ ...CLERK, DB: noTable }))).json();
+  assert.equal(config.guestMessages, 0);
+});
+
+test("config tells the page how many free messages this guest has left", async () => {
+  const db = createTestDb();
+  const e = env({ ...CLERK, DB: db });
+  const fresh = await (await worker.fetch(new Request(`https://${APP}/api/config`), e)).json();
+  assert.equal(fresh.guestMessages, 5);
+  assert.equal(fresh.guestLeft, 5);
+  await useUpTrial(db);
+  const used = await (
+    await worker.fetch(new Request(`https://${APP}/api/config`, { headers: { cookie: `hm_guest=${GUEST_ID}` } }), e)
+  ).json();
+  assert.equal(used.guestLeft, 0);
+  // No trial on the demo address.
+  const demo = await (await worker.fetch(new Request(`https://${DEMO_HOST}/api/config`), e)).json();
+  assert.equal(demo.guestMessages, 0);
 });
 
 test("with no sign-in set up, the coach only runs on localhost", async () => {

@@ -25,4 +25,10 @@ interface Env {
    * token counts; see src/usage.ts). Defaults to 5. "0" turns the coach off.
    */
   USER_MONTHLY_LIMIT_USD?: string;
+  /** Free coach messages per guest (src/guest.ts). Defaults to 5. "0" turns the guest trial off. */
+  GUEST_MESSAGE_LIMIT?: string;
+  /** Guest messages per network (IP address) per UTC day. Defaults to 15. */
+  GUEST_IP_DAILY_MESSAGES?: string;
+  /** What all guests together may cost per UTC day, in US dollars. Defaults to 2. */
+  GUEST_DAILY_LIMIT_USD?: string;
 }

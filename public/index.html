@@ -40,7 +40,7 @@
         <button class="btn primary big" type="submit">Sign in</button>
       </form>
       <div class="guest-option">
-        <p class="muted small">Just looking? As a guest you can look around and keep notes in this browser. The coach needs an account, so sign in when you want advice.</p>
+        <p class="muted small" id="guest-option-text">Just looking? As a guest you can look around and keep notes in this browser. The coach needs an account, so sign in when you want advice.</p>
         <button class="btn big" type="button" id="continue-guest" data-testid="continue-guest">Continue as guest</button>
         <p class="guest-clear" id="guest-clear" hidden>
           <button class="linkback danger" type="button" id="clear-guest" data-testid="clear-guest">Delete guest data from this browser</button>
@@ -191,6 +191,7 @@
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
             </button>
           </form>
+          <p id="guest-note" class="fineprint center guest-note" data-testid="guest-note" hidden></p>
           <p class="fineprint center">AI coach. Not therapy, legal, or medical advice. Drafts only: nothing gets sent for you.</p>
         </div>
       </div>

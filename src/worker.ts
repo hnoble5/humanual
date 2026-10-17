@@ -8,7 +8,21 @@ import { JournalSchema, journalRequest } from "./journal";
 import { MAX_MEMORIES, MAX_MEMORY_CHARS, MEMORY_SYSTEM, MemorySchema, memoryRequest } from "./memory";
 import { authMode, getUserId } from "./auth";
 import { deleteAll, StorageFullError, sync, SyncError } from "./storage";
-import { anthropicUserId, monthlyLimitMicros, recordUsage, spentThisMonth, type TokenUsage } from "./usage";
+import { anthropicUserId, costMicros, monthlyLimitMicros, recordUsage, spentThisMonth, type TokenUsage } from "./usage";
+import {
+  guestCookie,
+  guestIdFrom,
+  guestKeys,
+  guestMessageLimit,
+  guestMessagesLeft,
+  GUEST_MAX_CHARS,
+  GUEST_MAX_MESSAGES,
+  GUEST_MAX_TOKENS,
+  refundGuestMessage,
+  reserveGuestMessage,
+  settleGuestCost,
+  type GuestKeys,
+} from "./guest";
 
 // Model rule: anything that works with the user's personal details (their
 // profile, situations, people, memory) uses Opus, for quality. Only work that
@@ -129,6 +143,8 @@ async function requireUser(request: Request, env: Env): Promise<{ userId: string
 interface ModelUser {
   userId: string;
   metadata: { user_id: string };
+  /** Set for a guest on the free trial (src/guest.ts). isNew: the browser needs its cookie. */
+  guest?: { id: string; isNew: boolean };
 }
 
 const COACH_SIGNIN_ERROR = { error: "Sign in to talk with the coach.", code: "signin" };
@@ -138,13 +154,32 @@ const LIMIT_ERROR = {
 };
 
 /**
+ * A request with no sign-in at all, on an endpoint guests may use, while the
+ * guest trial is on. A sign-in that was sent but didn't check out is not a
+ * guest: that person needs to sign in again.
+ */
+async function guestUser(request: Request, env: Env): Promise<ModelUser | null> {
+  if (request.headers.get("authorization")?.trim() || request.headers.get("x-dev-user")?.trim()) return null;
+  if (!env.DB || !guestMessageLimit(env)) return null;
+  const existing = guestIdFrom(request);
+  const id = existing ?? crypto.randomUUID();
+  const userId = `guest:${id}`;
+  return { userId, metadata: { user_id: await anthropicUserId(userId) }, guest: { id, isNew: !existing } };
+}
+
+/**
  * The coach endpoints: app hosts only, signed-in users only, and only while the
  * user is under their monthly allowance. Every AI call is tied to one account,
- * so usage can be tracked, capped and (later) billed per user. The one
- * exception is local development with no sign-in set up at all, which runs as
- * a single "local" user.
+ * so usage can be tracked, capped and (later) billed per user. Two exceptions:
+ * coach chat lets guests try a few messages (src/guest.ts; their limits are
+ * checked once the message is read), and local development with no sign-in
+ * set up at all runs as a single "local" user.
  */
-async function guardModel(request: Request, env: Env): Promise<ModelUser | Response> {
+async function guardModel(
+  request: Request,
+  env: Env,
+  { allowGuest = false } = {},
+): Promise<ModelUser | Response> {
   if (!env.ANTHROPIC_API_KEY) return json({ error: "The server's API key isn't set up yet." }, 500);
   if (!isAppHost(request, env)) return json({ error: "The coach only answers in the Humanual app." }, 403);
 
@@ -157,7 +192,10 @@ async function guardModel(request: Request, env: Env): Promise<ModelUser | Respo
     userId = "local";
   } else {
     userId = await getUserId(request, env);
-    if (!userId) return json(COACH_SIGNIN_ERROR, 401);
+    if (!userId) {
+      const guest = allowGuest ? await guestUser(request, env) : null;
+      return guest ?? json(COACH_SIGNIN_ERROR, 401);
+    }
   }
 
   if (env.DB && (await spentThisMonth(env.DB, userId)) >= monthlyLimitMicros(env)) {
@@ -166,7 +204,10 @@ async function guardModel(request: Request, env: Env): Promise<ModelUser | Respo
   return { userId, metadata: { user_id: await anthropicUserId(userId) } };
 }
 
-/** Adds a response's tokens to the user's monthly total. Never fails the reply. */
+/**
+ * Adds a response's tokens to the user's monthly total (or, for a guest, to the
+ * guest trial's totals). Never fails the reply.
+ */
 async function track(env: Env, user: ModelUser, usage: TokenUsage | null | undefined) {
   if (!env.DB || !usage) return;
   try {
@@ -198,9 +239,34 @@ async function handleSync(request: Request, env: Env): Promise<Response> {
   }
 }
 
+/** Why a guest's message wasn't answered, with a way forward. */
+function guestBlocked(reason: "used" | "busy", env: Env, crisis: boolean, user: ModelUser): Response {
+  const error =
+    reason === "used"
+      ? `You've used your ${guestMessageLimit(env)} free coach messages. Create a free account to keep talking with the coach. Your conversations come with you.`
+      : "The free trial is full right now. Create a free account to keep talking with the coach.";
+  const res = json(
+    crisis
+      ? { error: `If you're in crisis or thinking about hurting yourself, call or text 988 (US) now. ${error}`, code: "guest_limit", crisis: true }
+      : { error, code: "guest_limit" },
+    429,
+  );
+  if (user.guest?.isNew) res.headers.append("set-cookie", guestCookie(user.guest.id));
+  return res;
+}
+
 async function handleChat(request: Request, env: Env): Promise<Response> {
-  const user = await guardModel(request, env);
+  const user = await guardModel(request, env, { allowGuest: true });
   if (user instanceof Response) return user;
+
+  // Guests have no sign-in token, so make sure the request comes from the app
+  // itself: JSON (which another site can't send without the browser asking
+  // first) and, when the browser says, from this same address.
+  if (user.guest) {
+    const origin = request.headers.get("origin");
+    const jsonBody = (request.headers.get("content-type") ?? "").toLowerCase().startsWith("application/json");
+    if (!jsonBody || (origin && origin !== new URL(request.url).origin)) return json({ error: "Invalid request" }, 403);
+  }
 
   let req: ChatRequest;
   try {
@@ -211,6 +277,37 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
 
   const latest = req.messages[req.messages.length - 1].content;
   const crisis = crisisCheck(latest);
+  const system = buildSystem(req);
+  const reminder = turnReminder(req);
+
+  // Guests: count this message against the free trial before the AI runs.
+  let keys: GuestKeys | null = null;
+  let guestLeft = 0;
+  let estimate = 0;
+  if (user.guest) {
+    const chars = req.messages.reduce((n, m) => n + m.content.length, 0);
+    if (req.messages.length > GUEST_MAX_MESSAGES || chars > GUEST_MAX_CHARS) {
+      return json(
+        { error: "That's longer than the free trial allows. Start a new conversation, or create a free account for longer ones.", code: "guest_long" },
+        413,
+      );
+    }
+    // The most this reply could cost: everything sent as a fresh cache write
+    // (about 3 characters per token, generously) plus a full-length reply.
+    const inputChars = chars + JSON.stringify(system).length + reminder.length + CRISIS_SYSTEM_NOTE.length;
+    estimate = costMicros({ cache_creation_input_tokens: Math.ceil(inputChars / 3), output_tokens: GUEST_MAX_TOKENS });
+    try {
+      keys = await guestKeys(request, user.guest.id);
+      const reserved = await reserveGuestMessage(env.DB, env, keys, { crisis, estimate });
+      if (!reserved.ok) return guestBlocked(reserved.reason, env, crisis, user);
+      guestLeft = reserved.left;
+    } catch (err) {
+      // The trial's table isn't there (migration not applied yet) or D1 is down:
+      // behave as before the trial existed.
+      console.error("guest trial check failed", err);
+      return json(COACH_SIGNIN_ERROR, 401);
+    }
+  }
 
   // The per-turn reminder (and crisis note, when flagged) goes after the latest
   // user message, where it has the most pull. It's never saved in history.
@@ -218,13 +315,13 @@ async function handleChat(request: Request, env: Env): Promise<Response> {
     ...req.messages,
     { role: "system", content: crisis ? `${CRISIS_SYSTEM_NOTE}
 
-${turnReminder(req)}` : turnReminder(req) },
+${reminder}` : reminder },
   ];
 
   const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
   const stream = client.beta.messages.stream({
     model: MODEL,
-    max_tokens: 16000,
+    max_tokens: user.guest ? GUEST_MAX_TOKENS : 16000,
     output_config: { effort: "medium" },
     // Caches the whole prefix (system + history) so each new turn only pays for what's new.
     cache_control: { type: "ephemeral" },
@@ -232,7 +329,7 @@ ${turnReminder(req)}` : turnReminder(req) },
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
     metadata: user.metadata,
-    system: buildSystem(req),
+    system,
     messages,
   });
 
@@ -246,18 +343,23 @@ ${turnReminder(req)}` : turnReminder(req) },
       const merge = (u: TokenUsage | null | undefined) => {
         for (const [k, v] of Object.entries(u ?? {})) if (typeof v === "number") (usage as any)[k] = v;
       };
+      let said = false; // any text sent: a guest keeps the message counted
       try {
+        if (keys) send({ t: "guest", left: guestLeft });
         if (crisis) send({ t: "crisis" });
         for await (const event of stream) {
           if (event.type === "message_start") merge(event.message.usage);
           else if (event.type === "message_delta") merge(event.usage);
           else if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+            said = true;
             send({ t: "text", v: event.delta.text });
           }
         }
         const final = await stream.finalMessage();
         if (final.stop_reason === "refusal") {
           send({ t: "refusal" });
+          // No answer, so a guest doesn't lose a free message for it.
+          if (keys && !said) await refundGuestMessage(env.DB, keys).catch(() => {});
         } else {
           send({ t: "done", stop: final.stop_reason });
         }
@@ -265,10 +367,20 @@ ${turnReminder(req)}` : turnReminder(req) },
         if (!stream.aborted) {
           console.error("chat stream failed", err);
           send({ t: "error", message: friendlyError(err) });
+          // The coach failed before saying anything: don't use up a free message.
+          if (keys && !said) await refundGuestMessage(env.DB, keys).catch(() => {});
         }
       } finally {
         // Before closing: once the response ends, the Worker may stop running.
-        if (Object.keys(usage).length) await track(env, user, usage);
+        if (keys) {
+          // Swap the guest's up-front estimate for the real cost (0 if the
+          // call never got going).
+          await settleGuestCost(env.DB, keys, estimate, costMicros(usage)).catch((err) =>
+            console.error("guest cost record failed", err),
+          );
+        } else if (Object.keys(usage).length) {
+          await track(env, user, usage);
+        }
         try {
           controller.close();
         } catch {
@@ -281,12 +393,12 @@ ${turnReminder(req)}` : turnReminder(req) },
     },
   });
 
-  return new Response(body, {
-    headers: {
-      "content-type": "application/x-ndjson; charset=utf-8",
-      "cache-control": "no-store",
-    },
+  const headers = new Headers({
+    "content-type": "application/x-ndjson; charset=utf-8",
+    "cache-control": "no-store",
   });
+  if (user.guest?.isNew) headers.append("set-cookie", guestCookie(user.guest.id));
+  return new Response(body, { headers });
 }
 
 async function handleScript(request: Request, env: Env): Promise<Response> {
@@ -475,11 +587,27 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
   if (url.pathname === "/api/config") {
     const auth = authMode(request, env);
+    const fullApp = isAppHost(request, env);
+    // The guest trial: how many free coach messages guests get, and how many
+    // this browser has left. 0 when it's off (or its table isn't set up yet).
+    let guestMessages = 0;
+    let guestLeft = 0;
+    if (fullApp && auth !== "none" && env.DB) {
+      try {
+        guestMessages = guestMessageLimit(env);
+        guestLeft = await guestMessagesLeft(env.DB, env, guestIdFrom(request));
+      } catch (err) {
+        console.error("guest trial lookup failed", err);
+        guestMessages = guestLeft = 0;
+      }
+    }
     return json({
       // false on the public demo address: the app sends visitors to /demo.
-      fullApp: isAppHost(request, env),
+      fullApp,
       auth,
       clerkPublishableKey: auth === "clerk" ? env.CLERK_PUBLISHABLE_KEY : undefined,
+      guestMessages,
+      guestLeft,
     });
   }
   if (url.pathname.startsWith("/api/")) return json({ error: "Not found" }, 404);
