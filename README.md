@@ -57,13 +57,31 @@ npx wrangler secret put ANTHROPIC_API_KEY
 npm run deploy
 ```
 
-Who can use the coach is decided in two steps: only the hosts in `APP_HOSTS` (in `wrangler.jsonc`) answer AI requests, and on those hosts the coach needs a signed-in account. Guests can look around, but every AI call belongs to one user, so it can be tracked and capped (see "AI billing and usage limits" below).
+Who can use the coach is decided in two steps: only the hosts in `APP_HOSTS` (in `wrangler.jsonc`) answer AI requests, and on those hosts the coach needs a signed-in account, except for the guest trial's few free chat messages (see "Guest trial" below). Every AI call belongs to one user or one guest, so it can be tracked and capped (see "AI billing and usage limits" below).
 
 ### AI billing and usage limits
 
 The API key belongs to the business, not a person. Use a key from the **Elite Test Automation** organization in the [Claude Console](https://platform.claude.com), from a workspace kept just for Humanual with a monthly spend limit set. That limit is the hard ceiling on the whole bill.
 
 Inside that ceiling, each signed-in user gets a monthly allowance, `USER_MONTHLY_LIMIT_USD` in `wrangler.jsonc` (default `5`). The Worker estimates each response's cost from its token counts (prices in `src/usage.ts`), adds it to the `usage` table in D1 per user per month (UTC), and refuses further AI calls with a 429 once a user reaches the allowance. Anthropic gets a SHA-256 hash of each user's id as `metadata.user_id`, never the id or email.
+
+### Guest trial
+
+People who continue as a guest get `GUEST_MESSAGE_LIMIT` free coach chat messages (default `5`), then the app asks them to create a free account. Scripts, Journal and memory still need an account. The code is in `src/guest.ts`.
+
+- **Counted on the server**, in the `guest_usage` table (migration `0004`), keyed by a random id in an `hm_guest` cookie (HttpOnly, one year). Clearing the page's saved data doesn't reset it.
+- **Backstops**, for guests who also clear cookies: at most `GUEST_IP_DAILY_MESSAGES` guest messages per network per UTC day (default `15`; the IP address is stored only as a hash), and at most `GUEST_DAILY_LIMIT_USD` of AI cost per day across all guests together (default `2`). When either is hit, guests see "The free trial is full right now" and are offered an account.
+- **Size limits** keep one guest message cheap: at most 12 messages and 12,000 characters per conversation, and a 6,000-token reply budget (`GUEST_MAX_*` in `src/guest.ts`). Each message's worst-case cost is held against the daily cap before the AI runs and swapped for the real cost afterwards, so many messages at once can't slip past it.
+- **Only from the app**: guest requests must be JSON from the same address, so another website can't spend the trial through its visitors' browsers.
+- **Crisis messages** are still answered after a guest's own free messages run out, and a guest turned away by a backstop still sees the crisis banner.
+- A message the coach fails to answer (an error or refusal before any text) is given back to the guest, but still counts toward the network's daily cap.
+- `GUEST_MESSAGE_LIMIT` `"0"` turns the trial off. If the `guest_usage` table is missing (migration not applied), the app behaves as before: guests are asked to sign in.
+
+Guest costs go in `guest_usage`, not `usage`:
+
+```sh
+npx wrangler d1 execute humanual --remote --command "SELECT key, messages, cost_micros / 1e6 AS usd FROM guest_usage WHERE key LIKE 'day:%' ORDER BY key DESC LIMIT 14"
+```
 
 To see who's using what:
 
@@ -129,6 +147,6 @@ When the Access session runs out, the app's requests fail with "Couldn't reach H
 ## Notes
 
 - Model: Claude Opus 5.5 at `medium` effort (memory updates at `low`), with server-side refusal fallback and prompt caching. Rule: anything that works with the user's personal details uses Opus; only features that never see personal details may use Sonnet. Today that's every AI call.
-- Cost backstop: AI requests are answered only on the hosts in `APP_HOSTS` and on localhost, only for signed-in users, and only up to each user's monthly allowance. With no sign-in set up, the coach runs only on localhost (as a single "local" user).
-- Guests: with accounts set up, people can continue as a guest. Guest data stays in that browser; signing in later moves it into the account.
+- Cost backstop: AI requests are answered only on the hosts in `APP_HOSTS` and on localhost, only for signed-in users (plus the capped guest trial), and only up to each user's monthly allowance. With no sign-in set up, the coach runs only on localhost (as a single "local" user).
+- Guests: with accounts set up, people can continue as a guest and try the coach (see "Guest trial"). Guest data stays in that browser; signing in later moves it into the account.
 - Not yet built: payments, per-user rate limiting, Buddy mode (`buddy-system-prompt.md`), real avatar art (placeholders use each coach's colors).

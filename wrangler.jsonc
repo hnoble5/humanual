@@ -40,6 +40,15 @@
   "workers_dev": false,
   // Hosts that serve the full app; everything else gets only the demo (src/worker.ts).
   // USER_MONTHLY_LIMIT_USD: each signed-in user's monthly AI allowance (src/usage.ts).
-  "vars": { "APP_HOSTS": "humanual.app", "USER_MONTHLY_LIMIT_USD": "5" },
+  // The guest trial (src/guest.ts): GUEST_MESSAGE_LIMIT free coach messages per
+  // guest ("0" turns it off), at most GUEST_IP_DAILY_MESSAGES per network per
+  // day, and GUEST_DAILY_LIMIT_USD of AI cost per day across all guests.
+  "vars": {
+    "APP_HOSTS": "humanual.app",
+    "USER_MONTHLY_LIMIT_USD": "5",
+    "GUEST_MESSAGE_LIMIT": "5",
+    "GUEST_IP_DAILY_MESSAGES": "15",
+    "GUEST_DAILY_LIMIT_USD": "2"
+  },
   "preview_urls": false
 }

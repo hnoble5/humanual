@@ -368,6 +368,7 @@ input:not([type=radio]):not([type=checkbox]), textarea, select {
 .guest-option p { margin: 0 0 10px; }
 .guest-option .guest-clear { margin: 12px 0 0; text-align: center; }
 .linkback.danger { color: var(--danger); font-size: 14px; }
+.guest-note .linkback { font-size: 13px; font-weight: 600; }
 .optional { font-weight: 400; color: var(--muted); }
 #clerk-mount { display: flex; justify-content: center; margin-top: 8px; }
 

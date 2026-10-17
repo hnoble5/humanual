@@ -131,6 +131,7 @@ function loadUserData() {
 // Per item, the newest edit wins.
 
 let authMode = "none";   // "clerk" | "dev" | "none" (no accounts: browser only)
+let guestTrial = { limit: 0, left: 0 }; // free coach messages for guests (src/guest.ts); limit 0 = off
 let clerk = null;        // Clerk instance when authMode is "clerk"
 let outbox = {};         // "kind:id" -> { updated_at, deleted }
 let syncCursor = 0;
@@ -416,6 +417,27 @@ function renderAccount() {
   }
   $("#clear-guest-app").hidden = !guest;
   if (guest) setSyncStatus("");
+  renderGuestNote();
+}
+
+// Under the message box, guests see how many free coach messages they have
+// left, with a way to make an account. The server does the counting.
+function renderGuestNote() {
+  const node = $("#guest-note");
+  if (!node) return;
+  node.hidden = DEMO || !isGuest() || !guestTrial.limit;
+  if (node.hidden) return;
+  const { left, limit } = guestTrial;
+  const signUp = el("button", { class: "linkback", type: "button", text: "Create a free account", onclick: signInFromGuest });
+  node.replaceChildren(
+    document.createTextNode(
+      left > 0
+        ? `Guest: ${left} of ${limit} free coach ${limit === 1 ? "message" : "messages"} left. `
+        : "Guest: you've used your free coach messages. ",
+    ),
+    signUp,
+    document.createTextNode(left > 0 ? " to keep your chats on all your devices." : " to keep going."),
+  );
 }
 
 // ---------- guests ----------
@@ -529,6 +551,10 @@ function showSignIn() {
   $("#app").hidden = true;
   $("#signin").hidden = false;
   $("#continue-guest").onclick = continueAsGuest;
+  if (guestTrial.limit) {
+    $("#guest-option-text").textContent =
+      `Just looking? Continue as a guest to try the coach with ${guestTrial.limit} free ${guestTrial.limit === 1 ? "message" : "messages"}. Your notes stay in this browser until you make an account.`;
+  }
   $("#guest-clear").hidden = !hasGuestData();
   $("#clear-guest").onclick = clearGuestData;
   if (authMode === "clerk") {
@@ -1022,6 +1048,8 @@ async function requestReply() {
   }
   let text = "";
   let crisisTurn = false; // this message matched crisis language: keep it out of memory
+  let countedGuest = false; // the server counted this as one of a guest's free messages
+  let gotText = false;      // any text arrived (the server then keeps the message counted)
   let frame = 0;
   const paint = () => {
     frame = 0;
@@ -1033,6 +1061,14 @@ async function requestReply() {
     mdNode.replaceChildren(el("p", { class: "error" }, [
       document.createTextNode(message),
       el("button", { class: "btn", type: "button", text: "Try again", onclick: () => { li.remove(); requestReply(); } }),
+    ]));
+  };
+
+  // A guest who's out of free messages (or can't use the coach): offer an account, not "Try again".
+  const failGuest = (message, label) => {
+    mdNode.replaceChildren(el("p", { class: "error" }, [
+      document.createTextNode(message + " "),
+      el("button", { class: "btn primary", type: "button", text: label, onclick: signInFromGuest }),
     ]));
   };
 
@@ -1053,6 +1089,18 @@ async function requestReply() {
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
+      if (data.crisis) {
+        c.crisis = true;
+        $("#crisis-banner").hidden = false;
+      }
+      if (data.code === "guest_limit") {
+        guestTrial.left = 0;
+        renderGuestNote();
+        return failGuest(data.error, "Create a free account");
+      }
+      if ((data.code === "signin" || data.code === "guest_long") && isGuest()) {
+        return failGuest(data.error, data.code === "signin" ? "Sign in" : "Create a free account");
+      }
       fail(data.error || `Something went wrong (${res.status}).`);
       return;
     }
@@ -1072,8 +1120,13 @@ async function requestReply() {
         if (!line) continue;
         const ev = JSON.parse(line);
         if (ev.t === "text") {
+          gotText = true;
           text += ev.v;
           if (!frame) frame = requestAnimationFrame(paint);
+        } else if (ev.t === "guest") {
+          guestTrial.left = ev.left;
+          countedGuest = true;
+          renderGuestNote();
         } else if (ev.t === "crisis") {
           crisisTurn = true;
           c.crisis = true;
@@ -1085,6 +1138,12 @@ async function requestReply() {
     }
     if (frame) cancelAnimationFrame(frame);
 
+    // The server gives a guest's message back when the coach fails before saying
+    // anything (src/worker.ts); match it here.
+    if ((outcome?.t === "error" || outcome?.t === "refusal") && countedGuest && !gotText) {
+      guestTrial.left = Math.min(guestTrial.limit, guestTrial.left + 1);
+      renderGuestNote();
+    }
     if (outcome?.t === "error") return fail(outcome.message);
     if (outcome?.t === "refusal") {
       return fail("The coach couldn't answer that one. Try rephrasing, or start a new conversation.");
@@ -1156,7 +1215,8 @@ function setMemory(items) {
 
 // Updates run one at a time so two quick replies can't overwrite each other.
 function rememberFrom(exchange) {
-  if (DEMO || !settings) return;
+  // Guests don't get memory updates (an account feature; the server refuses them).
+  if (DEMO || !settings || isGuest()) return;
   rememberQueue = rememberQueue.then(() => updateMemory(exchange)).catch(() => {});
 }
 
@@ -2081,6 +2141,7 @@ $("#manage-account").addEventListener("click", () => clerk?.openUserProfile());
   // The public demo address doesn't serve the full app (or answer the coach).
   if (config?.fullApp === false) return location.replace("/demo");
   authMode = config?.auth ?? "none";
+  guestTrial = { limit: config?.guestMessages ?? 0, left: config?.guestLeft ?? 0 };
 
   if (authMode === "none") return enterAs(null);
   const guest = load(GUEST_KEY, 0) === 1;
